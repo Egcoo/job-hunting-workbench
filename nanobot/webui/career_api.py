@@ -10,22 +10,25 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, cast
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
 
 from nanobot.agent.tools.context import RequestContext
 from nanobot.career.context import redact
+from nanobot.career.imports import ResumeImports, validate_resume_upload
 from nanobot.career.models import (
     CareerConflictError,
     CareerNotFoundError,
     CareerThread,
     PersonalConditions,
     PreparationPlan,
+    ResumeImport,
     ShortText,
     TaskList,
     TaskStatus,
 )
 from nanobot.career.service import CareerService
 from nanobot.career.store import CareerStore
+from nanobot.channels.websocket.attachment_store import AttachmentStore
 from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScope,
@@ -38,6 +41,7 @@ from nanobot.webui.workspaces import WebUIWorkspaceController, read_webui_worksp
 CAREER_MUTATIONS = frozenset({
     "career.resume.create", "career.resume.edit", "career.resume.revise",
     "career.resume.rename", "career.resume.confirm",
+    "career.resume.import", "career.resume.import.retry",
     "career.job.create", "career.job.edit", "career.job.revise", "career.job.confirm",
     "career.thread.create",
     "career.plan.confirm", "career.plan.cancel", "career.task.update",
@@ -64,6 +68,14 @@ class _ResumeWrite(_Request):
 class _ResumeRename(_VersionRequest):
     name: ShortText
     notes: Annotated[str, Field(max_length=5_000)] = ""
+
+
+class _ResumeImport(_Request):
+    request_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")]
+    attachment_ref: ShortText
+    filename: Annotated[str, Field(min_length=1, max_length=255)]
+    size: Annotated[int, Field(strict=True, ge=1, le=6 * 1024 * 1024)]
+    name: ShortText
 
 
 class _JobWrite(_Request):
@@ -224,6 +236,7 @@ class CareerAPI:
         return {
             "workspace_ref": reference, "workspace_id": service.store.workspace_id,
             "resumes": [item.model_dump(mode="json") for item in service.list_resumes()],
+            "imports": [self._import_payload(item) for item in ResumeImports(service.store).list()],
             "jobs": [item.model_dump(mode="json") for item in service.list_jobs()],
             "threads": [item.model_dump(mode="json") for item in threads],
             "deleted_thread_ids": [item.id for item in service.list_threads(include_deleted=True) if item.deleted_at is not None],
@@ -232,6 +245,60 @@ class CareerAPI:
             "tasks": [item.model_dump(mode="json") for item in tasks],
             "chat_available": availability,
         }
+
+    @staticmethod
+    def _import_payload(record: ResumeImport) -> dict[str, object]:
+        return record.model_dump(mode="json", exclude={"text", "lines", "sections", "request_id", "sha256"})
+
+    def resume_import(self, reference: str, import_id: str) -> dict[str, object]:
+        service, _ = self._resolve(reference)
+        record = ResumeImports(service.store).get(import_id)
+        return {**self._import_payload(record), "text": record.text,
+                "lines": [line.model_dump() for line in record.lines],
+                "sections": [section.model_dump() for section in record.sections]}
+
+    def resume_file(self, reference: str, import_id: str) -> tuple[ResumeImport, bytes]:
+        service, _ = self._resolve(reference)
+        return ResumeImports(service.store).original(import_id)
+
+    def _import_result(self, service: CareerService, record: ResumeImport) -> dict[str, object]:
+        resume = service.get_resume(record.resume_version_id) if record.resume_version_id is not None else None
+        return {"import": self._import_payload(record), "resume": resume.model_dump(mode="json") if resume else None}
+
+    async def _import_resume(
+        self, action: str, payload: dict[str, object], uploads: AttachmentStore | None, owner: str,
+    ) -> dict[str, object]:
+        async with self._lifecycle_lock:
+            if action == "career.resume.import.retry":
+                retry = _VersionRequest.model_validate(payload)
+                service, _ = await asyncio.to_thread(self._resolve, retry.workspace_ref)
+                record = await asyncio.to_thread(ResumeImports(service.store).process, retry.id)
+                return await asyncio.to_thread(self._import_result, service, record)
+            request = _ResumeImport.model_validate(payload)
+            service, _ = await asyncio.to_thread(self._resolve, request.workspace_ref)
+            imports = ResumeImports(service.store)
+            existing = await asyncio.to_thread(imports.for_request, request.request_id)
+            if existing is not None:
+                if (existing.filename, existing.name, existing.size) != (request.filename, request.name, request.size):
+                    raise CareerConflictError("career_import_request_reused")
+                return await asyncio.to_thread(self._import_result, service, existing)
+            if uploads is None or not owner:
+                raise ValueError("career_import_requires_upload_connection")
+            entry = uploads.inspect([request.attachment_ref], owner=owner)[0]
+            validate_resume_upload(request.filename, entry.mime, entry.size)
+            if entry.size != request.size or entry.path.resolve().parent != uploads.media_dir.resolve() or entry.path.is_symlink():
+                raise ValueError("career_invalid_upload")
+            # Transfer ownership before any await: staging TTL/disconnect cleanup
+            # must not remove a file while the business worker is adopting it.
+            source = Path(uploads.commit([request.attachment_ref], owner=owner)[0])
+            try:
+                record = await asyncio.to_thread(
+                    imports.accept, source, request_id=request.request_id,
+                    filename=request.filename, mime=entry.mime, size=entry.size, name=request.name,
+                )
+            finally:
+                await asyncio.to_thread(source.unlink, missing_ok=True)
+            return await asyncio.to_thread(self._import_result, service, record)
 
     @staticmethod
     def _plan_payload(service: CareerService, plan: PreparationPlan) -> dict[str, object]:
@@ -368,9 +435,14 @@ class CareerAPI:
             job.id, name=job.name, company=job.company, text=job.text, requirements=job.requirements,
         ).model_dump(mode="json")
 
-    async def mutate(self, action: str, payload: dict[str, object]) -> dict[str, object]:
+    async def mutate(
+        self, action: str, payload: dict[str, object], *,
+        uploads: AttachmentStore | None = None, upload_owner: str = "",
+    ) -> dict[str, object]:
         if action not in CAREER_MUTATIONS:
             raise CareerNotFoundError("career_action_not_found")
+        if action in {"career.resume.import", "career.resume.import.retry"}:
+            return await self._import_resume(action, payload, uploads, upload_owner)
         if action in {"career.plan.confirm", "career.plan.cancel", "career.task.update"}:
             async with self._lifecycle_lock:
                 return await asyncio.to_thread(self._mutate_plan, action, payload)

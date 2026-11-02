@@ -138,6 +138,7 @@ def build_gateway_services(
         ingress=ingress,
         workspaces=workspaces,
         settings=settings,
+        uploads=uploads,
         skills_workspace_path=workspace_path,
         disabled_skills=disabled_skills,
         cron_service=cron_service,

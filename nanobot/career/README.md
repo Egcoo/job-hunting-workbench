@@ -1,6 +1,6 @@
-# 求职业务：第 2～5 步
+# 求职业务：第 2～6 步
 
-本模块保存求职资料和准备记录。第 2 步提供 Python 业务服务，第 3 步接入现有 gateway 和真实 WebUI 的文字资料管理，第 4 步接入选定资料的真实多轮对话、流式回复、来源及状态，第 5 步接通建议草稿、用户编辑确认、任务进度和结果。真实模型已用明确标注的虚构资料验证，正式材料与完整建议质量仍待验收；文档解析和图片识别留待后续。原聊天历史仍由 `nanobot/session/` 管理，本模块只保存会话引用、业务结果和资料快照。
+本模块保存求职资料和准备记录。第 2 步提供 Python 业务服务，第 3 步接入现有 gateway 和真实 WebUI 的文字资料管理，第 4 步接入带资料多轮对话，第 5 步接通用户确认任务和跟进，第 6 步接通文本型 PDF / DOCX 本地导入、原文件及提取原文、人工核对和版本确认。真实模型的历史样例与本轮文件工程验证分别记录，完整建议质量仍待验收；岗位图片识别留待第七步。原聊天历史仍由 `nanobot/session/` 管理。
 
 ## 数据存放
 
@@ -8,7 +8,8 @@
 - 复用 `SessionLocation` 的工作区身份标记，创建或读取 `<workspace>/.nanobot/workspace-id` 及实例中的会话命名空间标记，不打开或修改原会话数据库。数据库不能位于当前 agent 工作区内。
 - 构造器只接受可信运行时提供的 `workspace` 和可选 `data_dir`；未来业务接口不能接收客户端提交的磁盘路径。不同工作区使用不同数据库，同一工作区在不同实例的数据目录中也各自隔离。
 - UUID 是稳定身份；简历展示序号在工作区内递增，岗位展示序号在同一 `job_id` 内递增，同名不会覆盖。`parent_version_id` 记录另存来源。
-- 当前 `schema_version = 3`，记录在 SQLite 的 `PRAGMA user_version`。版本 1 / 2 事务升级，为任务新增 `basis`，旧值默认空字符串；版本 1 同时补齐 `career_threads.deleted_at`。原记录保留，旧计划 JSON 缺少依据也能读取；不支持的未来版本会明确报错，不能重建或清空已有资料。
+- 当前 `schema_version = 4`，记录在 SQLite 的 `PRAGMA user_version`。版本 1 / 2 / 3 事务升级，沿用删除标记和任务依据迁移，新增简历可空 `import_id` 与 `resume_imports`；旧快照缺少 import_id、旧计划缺少依据仍可读取。原记录保留，未来未知版本明确报错，不能重建或清空已有资料。
+- 原简历文件位于同一命名空间的 `resume-files/import_<服务端生成ID>.pdf` 或 `.docx`，受路径和内容校验保护。临时上传引用接管后转为业务文件，不能依赖上传 TTL 或浏览器缓存。
 - 每次操作单独打开和关闭连接，启用外键、WAL 和 `synchronous=FULL`。写操作在读取决策依据前执行 `BEGIN IMMEDIATE`，让多个线程或进程的确认、版本分配依次完成；出错时整个事务回滚。
 
 ## 服务与状态
@@ -151,3 +152,15 @@ npm run test:career
 认证读取状态增加可选 `drafts` 及来源；认证修改操作为 `career.plan.confirm`、`career.plan.cancel`、`career.task.update`。确认必须提交用户选择，分析成功后才允许保存；任务更新验证存储关系及实际会话归属。`CareerPlanDrafts` 负责编辑和明确确认，`PreparationList` 按原来源显示正式任务、完成状态和结果。能力 `webui.career.plans.v1` 缺失时不开放修改，核心协议仍为 1。
 
 后端定向 142 passed，迁移补充复测 6 passed，前端 97 passed；工程既有五例及新增计划专项分别通过，隔离真实模型专项 1 passed。Ruff、BasedPyright、类型、lint、构建和导入边界通过。自动化确认与进度验证均在独立临时实例；使用时先在对话中提出计划，编辑并确认草稿后进入清单，再更新完成状态和结果。PDF / DOCX、图片识别和到岗条件独立保存均未在此步实施。
+
+## 第 6 步：简历文件导入
+
+`ResumeImports` 复用 `open_document_line_source` 本地读取真实 PDF / DOCX，保存带原文出处的未确认版本、文件信息及处理状态；按明确章节标题整理字段，缺失内容不补造。原始提取结果与用户核对正文分别保留，确认内容修改继续另存新版；导入及重新解析成功只创建一次版本，保存版本和成功关联在同一事务完成。
+
+单文件上限 6 MiB、正文 200,000 字符、PDF 100 页、有效文本行 10,000，继承原解析器的压缩包及内容安全限制。扫描件无有效文字、加密、损坏和超限均有失败状态，适用时可用原文件重试；无效上传元数据在接收前拒绝。原文件不可用时要求重新上传，不采用示例或空结果冒充成功。
+
+新增可选能力 `webui.career.resume-import.v1`，认证修改操作为 `career.resume.import`、`career.resume.import.retry`，元数据 / 原文和原文件下载沿用认证 HTTP。接收仅认可当前连接拥有的上传引用，拒绝客户端路径；下载由工作区引用和导入 ID 反查并校验文件，不暴露磁盘路径。原二进制上传提取为客户端 `stageAttachments` 复用，普通消息发送与确认机制保留。
+
+使用时进入“我的简历”，选择 PDF / DOCX 并点击导入，核对正文与整理内容，保存修改后确认使用。原文件与出处可在版本编辑区查看和下载。旧宿主不开放导入按钮，已有文字录入保留；岗位截图和到岗条件独立保存未在本轮实施。
+
+后端主回归 160 passed、导入和迁移补充 22 passed；前端主回归 199 passed、出处文案补充 30 passed。实际 PDF / DOCX 浏览器专项 1 passed，另有原浏览器六例回归通过；没有为文件导入新增真实模型调用。相关测试位于 `tests/career/test_imports.py`、`tests/career/test_store.py`、`tests/webui/test_career_api.py` 和 WebUI 的 `career-import.test.tsx`、`career-real.spec.ts`。

@@ -69,6 +69,8 @@ def test_v1_database_upgrade_preserves_materials_bindings_and_analysis(tmp_path:
     with closing(sqlite3.connect(store.path)) as db, db:
         db.execute("ALTER TABLE career_threads DROP COLUMN deleted_at")
         db.execute("ALTER TABLE preparation_tasks DROP COLUMN basis")
+        db.execute("DROP TABLE resume_imports")
+        db.execute("ALTER TABLE resume_versions DROP COLUMN import_id")
         db.execute("PRAGMA user_version = 1")
     restored = CareerService(CareerStore(tmp_path / "workspace", data_dir=tmp_path / "data"))
     assert restored.get_thread(thread.id) == thread
@@ -97,6 +99,8 @@ def test_v2_upgrade_retains_confirmed_tasks_and_completed_results(tmp_path: Path
     completed = service.update_task(task.id, status="completed", result="原完成结果")
     with closing(sqlite3.connect(store.path)) as db, db:
         db.execute("ALTER TABLE preparation_tasks DROP COLUMN basis")
+        db.execute("DROP TABLE resume_imports")
+        db.execute("ALTER TABLE resume_versions DROP COLUMN import_id")
         db.execute("UPDATE preparation_plans SET proposed_tasks = ? WHERE id = ?", (
             json.dumps([{"title": "旧任务", "action": "整理一页", "completion_criteria": "一页完成"}], ensure_ascii=False), plan.id,
         ))
@@ -105,3 +109,31 @@ def test_v2_upgrade_retains_confirmed_tasks_and_completed_results(tmp_path: Path
     assert restored.get_plan(plan.id).status == "confirmed"
     assert restored.list_tasks(plan.id) == [completed]
     assert restored.get_thread(thread.id).deleted_at is None
+
+
+def test_v3_upgrade_retains_old_snapshots_and_removed_preparations(tmp_path: Path) -> None:
+    store = CareerStore(tmp_path / "workspace", data_dir=tmp_path / "data")
+    service = CareerService(store)
+    resume = service.create_resume(name="v3 旧简历", text="原始经历")
+    job = service.create_job(name="旧岗位", text="原始要求")
+    service.confirm_resume(resume.id)
+    service.confirm_job(job.id)
+    thread = service.create_thread(session_key="career:v3-migration", resume_version_id=resume.id, job_version_id=job.id)
+    analysis = service.create_analysis(thread.id, turn_id="old-v3-turn")
+    service.retire_threads([thread.id])
+    retired = service.get_thread(thread.id, include_deleted=True)
+    with closing(sqlite3.connect(store.path)) as db, db:
+        snapshot = json.loads(db.execute("SELECT snapshot FROM analysis_runs WHERE id=?", (analysis.id,)).fetchone()[0])
+        snapshot["resume"].pop("import_id")
+        db.execute("UPDATE analysis_runs SET snapshot=? WHERE id=?", (json.dumps(snapshot), analysis.id))
+        db.execute("DROP TABLE resume_imports")
+        db.execute("ALTER TABLE resume_versions DROP COLUMN import_id")
+        db.execute("PRAGMA user_version=3")
+    restored = CareerService(CareerStore(tmp_path / "workspace", data_dir=tmp_path / "data"))
+    assert restored.get_resume(resume.id).source == "text"
+    assert restored.get_resume(resume.id).import_id is None
+    assert restored.get_thread(thread.id, include_deleted=True) == retired
+    assert restored.get_analysis(analysis.id).snapshot.turn_id == "old-v3-turn"
+    with restored.store.transaction() as db:
+        assert restored.store.resume_imports(db) == []
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION

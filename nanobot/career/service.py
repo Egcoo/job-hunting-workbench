@@ -115,6 +115,7 @@ class CareerService:
             record = ResumeVersion(
                 id=_id("resume"), version=self.store.next_resume_version(db),
                 parent_version_id=previous.id,
+                source=previous.source, import_id=previous.import_id,
                 name=name if name is not None else previous.name,
                 notes=notes if notes is not None else previous.notes,
                 text=text, profile=profile if profile is not None else {},

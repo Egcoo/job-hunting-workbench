@@ -36,7 +36,8 @@ class ResumeVersion(_CareerModel):
     parent_version_id: str | None = None
     name: ShortText
     notes: Annotated[str, Field(max_length=5_000)] = ""
-    source: Literal["text"] = "text"
+    source: Literal["text", "pdf", "docx"] = "text"
+    import_id: str | None = None
     text: BodyText
     profile: dict[str, JsonValue] = Field(default_factory=dict)
     status: Literal["draft", "confirmed"] = "draft"
@@ -50,6 +51,39 @@ class ResumeVersion(_CareerModel):
         if not value.strip():
             raise ValueError("resume text must not be blank")
         return value
+
+
+class ResumeSourceLine(_CareerModel):
+    number: Annotated[int, Field(ge=1)]
+    locator: ShortText
+    text: BodyText
+
+
+ResumeSectionKey = Literal["education", "projects", "skills", "summary", "experience"]
+ResumeImportError = Literal["invalid_document", "encrypted", "empty_document", "text_limit", "safety_limit", "file_unavailable"]
+
+
+class ResumeSourceSection(_CareerModel):
+    key: ResumeSectionKey
+    line_numbers: tuple[Annotated[int, Field(ge=1)], ...]
+
+
+class ResumeImport(_CareerModel):
+    id: Annotated[str, StringConstraints(pattern=r"^import_[a-f0-9]{32}$")]
+    request_id: ShortText
+    filename: ShortText
+    file_type: Literal["pdf", "docx"]
+    size: Annotated[int, Field(ge=1, le=6 * 1024 * 1024)]
+    sha256: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
+    name: ShortText
+    status: Literal["processing", "ready", "failed"] = "processing"
+    text: Annotated[str, Field(max_length=200_000)] = ""
+    lines: tuple[ResumeSourceLine, ...] = ()
+    sections: tuple[ResumeSourceSection, ...] = ()
+    error_code: ResumeImportError | None = None
+    resume_version_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class JobVersion(_CareerModel):

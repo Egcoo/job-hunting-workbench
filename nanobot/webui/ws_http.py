@@ -29,6 +29,7 @@ from websockets.http11 import Response
 
 from nanobot.agent.subagent import SubagentControlError
 from nanobot.agent.subagent_status import SubagentSessionError
+from nanobot.channels.websocket.attachment_http import AttachmentHTTP
 from nanobot.command.builtin import builtin_command_palette
 from nanobot.cron.binding import CronBindingError, binding_revision
 from nanobot.cron.session_turns import is_bound_cron_job
@@ -384,6 +385,7 @@ class GatewayHTTPHandler:
         workspaces: WebUIWorkspaceController,
         settings: WebUISettingsServices,
         skills_workspace_path: Path,
+        uploads: AttachmentHTTP | None = None,
         disabled_skills: set[str] | None = None,
         cron_service: CronService | None = None,
         local_trigger_store: LocalTriggerStore | None = None,
@@ -411,6 +413,7 @@ class GatewayHTTPHandler:
         self.media = media
         self.ingress = ingress
         self.workspaces = workspaces
+        self.uploads = uploads
         self.career = CareerAPI(
             sessions=session_manager, workspaces=workspaces, data_dir=settings.config.path.parent,
         )
@@ -596,8 +599,8 @@ class GatewayHTTPHandler:
         request: WsRequest,
         got: str,
     ) -> Any | None:
-        if got in {"/api/career/workspaces", "/api/career", "/api/career/conversation"} or got.startswith("/api/career/mutate/"):
-            return await self._dispatch_career(request, got)
+        if got in {"/api/career/workspaces", "/api/career", "/api/career/conversation", "/api/career/resume-import", "/api/career/resume-file"} or got.startswith("/api/career/mutate/"):
+            return await self._dispatch_career(connection, request, got)
         if got == "/api/remote-instances" or got.startswith("/api/remote-instances/"):
             return await self._dispatch_remote_instances(connection, request, got)
         # Token issue endpoint
@@ -660,7 +663,7 @@ class GatewayHTTPHandler:
 
         return connection.respond(404, "Not Found")
 
-    async def _dispatch_career(self, request: WsRequest, path: str) -> Response:
+    async def _dispatch_career(self, connection: Any, request: WsRequest, path: str) -> Response:
         from pydantic import ValidationError
 
         from nanobot.career.models import CareerConflictError, CareerNotFoundError
@@ -668,6 +671,19 @@ class GatewayHTTPHandler:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         try:
+            if path in {"/api/career/resume-import", "/api/career/resume-file"}:
+                query = _parse_query(request.path)
+                reference = _query_first(query, "workspace_ref") or ""
+                import_id = _query_first(query, "id") or ""
+                if path.endswith("resume-import"):
+                    return _http_json_response(
+                        await asyncio.to_thread(self.career.resume_import, reference, import_id), extra_headers=_NO_STORE_HEADERS,
+                    )
+                record, content = await asyncio.to_thread(self.career.resume_file, reference, import_id)
+                return _http_response(content, content_type="application/octet-stream", extra_headers=[
+                    *_NO_STORE_HEADERS, ("X-Content-Type-Options", "nosniff"),
+                    ("Content-Disposition", f"attachment; filename*=UTF-8''{quote(record.filename, safe='')}"),
+                ])
             if path == "/api/career/workspaces":
                 return _http_json_response(await asyncio.to_thread(self.career.catalog), extra_headers=_NO_STORE_HEADERS)
             if path == "/api/career":
@@ -682,7 +698,12 @@ class GatewayHTTPHandler:
                     extra_headers=_NO_STORE_HEADERS,
                 )
             action = path.removeprefix("/api/career/mutate/")
-            return _http_json_response(await self.career.mutate(action, _mutation_payload(request) or {}))
+            uploads = self.uploads if action == "career.resume.import" else None
+            return _http_json_response(await self.career.mutate(
+                action, _mutation_payload(request) or {},
+                uploads=uploads.store if uploads is not None else None,
+                upload_owner=uploads.owner(connection) if uploads is not None else "",
+            ))
         except ValidationError:
             return _http_error(400, "career_invalid_request")
         except CareerNotFoundError:

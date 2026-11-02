@@ -4,8 +4,10 @@ import asyncio
 import json
 from contextlib import suppress
 from dataclasses import replace
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from websockets.datastructures import Headers
@@ -23,6 +25,7 @@ from nanobot.bus.outbound_events import (
 )
 from nanobot.bus.queue import MessageBus
 from nanobot.career.models import TaskInput
+from nanobot.career.store import CareerStore
 from nanobot.channels.manager import ChannelManager
 from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanobot.providers.base import LLMResponse, ToolCallRequest
@@ -82,6 +85,122 @@ async def _scope(gateway) -> str:
     response = await _get(gateway, "/api/career/workspaces")
     assert response.status_code == 200
     return _body(response)["workspaces"][0]["ref"]
+
+
+class _UploadConnection:
+    def __init__(self):
+        self.remote_address = ("127.0.0.1", 32101)
+        self.request = Request("/", Headers())
+
+
+def _resume_document() -> bytes:
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph("教育背景")
+    document.add_paragraph("工程测试大学 API_FILE_6")
+    document.add_paragraph("项目经历")
+    document.add_paragraph("测试原型项目，不包含真实个人资料。")
+    target = BytesIO()
+    document.save(target)
+    return target.getvalue()
+
+
+async def _staged_resume(services, connection, content: bytes, *, filename="resume.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document") -> str:
+    if not services.uploads.owner(connection):
+        services.uploads.issue(connection)
+
+    async def chunks():
+        yield content
+
+    return await services.uploads.store.upload(chunks(), owner=services.uploads.owner(connection), mime=mime, size=len(content), filename=filename)
+
+
+async def test_import_uses_live_upload_owner_and_retains_original_after_staging_cleanup(gateway, tmp_path):
+    services, token, _ = gateway
+    connection = _UploadConnection()
+    upload_gateway = (services, token, connection)
+    reference = await _scope(gateway)
+    content = _resume_document()
+    attachment = await _staged_resume(services, connection, content)
+    payload = dict(workspace_ref=reference, request_id=str(uuid4()), attachment_ref=attachment,
+                   filename="resume.docx", size=len(content), name="工程文件简历")
+    response = await _mutate(upload_gateway, "career.resume.import", **payload)
+    assert response.status_code == 200
+    result = _body(response)
+    record, resume = result["import"], result["resume"]
+    assert record["status"] == "ready" and resume["status"] == "draft"
+    assert "API_FILE_6" in resume["text"] and resume["import_id"] == record["id"]
+    services.uploads.revoke(connection)
+    assert _body(await _mutate(upload_gateway, "career.resume.import", **payload)) == result
+    source_path = f"/api/career/resume-import?workspace_ref={reference}&id={record['id']}"
+    source = _body(await _get(gateway, source_path))
+    assert source["text"] == resume["text"] and source["lines"][0]["locator"]
+    download_path = f"/api/career/resume-file?workspace_ref={reference}&id={record['id']}"
+    assert (await _get(gateway, download_path, authenticated=False)).status_code == 401
+    downloaded = await _get(gateway, download_path)
+    assert bytes(downloaded.body) == content
+    assert downloaded.headers["X-Content-Type-Options"] == "nosniff"
+    assert downloaded.headers["Cache-Control"] == "no-store"
+    assert downloaded.headers["Content-Disposition"].startswith("attachment;")
+    other = tmp_path / "other-file-workspace"
+    other.mkdir()
+    write_webui_workspace_state({"favorite_projects": [str(other)]})
+    scopes = _body(await _get(gateway, "/api/career/workspaces"))["workspaces"]
+    foreign = next(item["ref"] for item in scopes if item["ref"] != reference)
+    assert (await _get(gateway, f"/api/career/resume-file?workspace_ref={foreign}&id={record['id']}")).status_code == 404
+    state = _body(await _get(gateway, f"/api/career?workspace_ref={reference}"))
+    assert state["imports"][0]["id"] == record["id"] and len(state["resumes"]) == 1
+
+
+async def test_import_rejects_foreign_upload_and_client_paths_without_consuming_the_valid_reference(gateway):
+    services, token, _ = gateway
+    owner, stranger = _UploadConnection(), _UploadConnection()
+    reference = await _scope(gateway)
+    content = _resume_document()
+    attachment = await _staged_resume(services, owner, content)
+    services.uploads.issue(stranger)
+    payload = dict(workspace_ref=reference, request_id=str(uuid4()), attachment_ref=attachment,
+                   filename="resume.docx", size=len(content), name="工程文件")
+    assert (await _mutate((services, token, stranger), "career.resume.import", **payload)).status_code == 400
+    assert (await _mutate((services, token, owner), "career.resume.import", **payload, path="C:/untrusted.docx")).status_code == 400
+    assert (await _mutate((services, token, owner), "career.resume.import", **{**payload, "filename": "../escape.docx"})).status_code == 400
+    response = await _mutate((services, token, owner), "career.resume.import", **payload)
+    assert response.status_code == 200 and _body(response)["resume"]["status"] == "draft"
+
+
+async def test_failed_import_is_visible_and_interrupted_transaction_can_resume_without_duplicate_versions(gateway, monkeypatch):
+    services, token, _ = gateway
+    connection = _UploadConnection()
+    upload_gateway = (services, token, connection)
+    reference = await _scope(gateway)
+    corrupt = b"not-a-pdf"
+    attachment = await _staged_resume(services, connection, corrupt, filename="broken.pdf", mime="application/pdf")
+    broken = _body(await _mutate(upload_gateway, "career.resume.import", workspace_ref=reference,
+                                request_id=str(uuid4()), attachment_ref=attachment, filename="broken.pdf", size=len(corrupt), name="损坏演示"))
+    assert broken["import"]["status"] == "failed" and broken["resume"] is None
+    retried = _body(await _mutate(gateway, "career.resume.import.retry", workspace_ref=reference, id=broken["import"]["id"]))
+    assert retried["import"]["id"] == broken["import"]["id"] and retried["import"]["error_code"] == "invalid_document"
+    assert retried["resume"] is None
+    content = _resume_document()
+    attachment = await _staged_resume(services, connection, content)
+    update = CareerStore.update_resume_import
+
+    def fail_ready(db, record):
+        if record.status == "ready":
+            raise OSError("engineering interrupted write")
+        return update(db, record)
+
+    monkeypatch.setattr(CareerStore, "update_resume_import", staticmethod(fail_ready))
+    assert (await _mutate(upload_gateway, "career.resume.import", workspace_ref=reference,
+                         request_id=str(uuid4()), attachment_ref=attachment, filename="resume.docx", size=len(content), name="可恢复导入")).status_code == 503
+    monkeypatch.setattr(CareerStore, "update_resume_import", staticmethod(update))
+    state = _body(await _get(gateway, f"/api/career?workspace_ref={reference}"))
+    assert state["resumes"] == []
+    pending = next(item for item in state["imports"] if item["status"] == "processing")
+    recovered = _body(await _mutate(gateway, "career.resume.import.retry", workspace_ref=reference, id=pending["id"]))
+    assert recovered["resume"]["version"] == 1 and recovered["import"]["status"] == "ready"
+    assert _body(await _mutate(gateway, "career.resume.import.retry", workspace_ref=reference, id=pending["id"])) == recovered
 
 
 async def _confirmed_pair(gateway, reference: str) -> tuple[dict, dict]:

@@ -19,12 +19,23 @@ from nanobot.career.models import (
     JobVersion,
     PreparationPlan,
     PreparationTask,
+    ResumeImport,
     ResumeVersion,
 )
 from nanobot.config.paths import get_data_dir
 from nanobot.session.location import SessionLocation
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+_IMPORT_SCHEMA = """CREATE TABLE resume_imports (
+    id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL, file_type TEXT NOT NULL CHECK (file_type IN ('pdf', 'docx')),
+    size INTEGER NOT NULL, sha256 TEXT NOT NULL, name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('processing', 'ready', 'failed')),
+    text TEXT NOT NULL, lines TEXT NOT NULL, sections TEXT NOT NULL, error_code TEXT,
+    resume_version_id TEXT UNIQUE REFERENCES resume_versions(id),
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+)"""
 _Record = TypeVar("_Record", bound=BaseModel)
 
 _SCHEMA = (
@@ -35,7 +46,7 @@ _SCHEMA = (
         name TEXT NOT NULL, notes TEXT NOT NULL, source TEXT NOT NULL,
         text TEXT NOT NULL, profile TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('draft', 'confirmed')),
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, confirmed_at TEXT
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, confirmed_at TEXT, import_id TEXT
     )""",
     """CREATE TABLE job_versions (
         id TEXT PRIMARY KEY, job_id TEXT NOT NULL,
@@ -77,6 +88,7 @@ _SCHEMA = (
     )""",
     "CREATE INDEX analysis_thread_idx ON analysis_runs(career_thread_id, created_at)",
     "CREATE INDEX plans_analysis_idx ON preparation_plans(analysis_id, created_at)",
+    _IMPORT_SCHEMA,
 )
 
 
@@ -151,16 +163,19 @@ class CareerStore:
             with db:
                 db.execute("BEGIN IMMEDIATE")
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1, 2, SCHEMA_VERSION):
+                if version not in (0, 1, 2, 3, SCHEMA_VERSION):
                     raise ValueError(f"unsupported career schema_version: {version}")
                 if version == 0:
                     for statement in _SCHEMA:
                         db.execute(statement)
                     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-                elif version in (1, 2):
+                elif version in (1, 2, 3):
                     if version == 1:
                         db.execute("ALTER TABLE career_threads ADD COLUMN deleted_at TEXT")
-                    db.execute("ALTER TABLE preparation_tasks ADD COLUMN basis TEXT NOT NULL DEFAULT ''")
+                    if version in (1, 2):
+                        db.execute("ALTER TABLE preparation_tasks ADD COLUMN basis TEXT NOT NULL DEFAULT ''")
+                    db.execute("ALTER TABLE resume_versions ADD COLUMN import_id TEXT")
+                    db.execute(_IMPORT_SCHEMA)
                     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @contextmanager
@@ -194,6 +209,37 @@ class CareerStore:
     @staticmethod
     def add_resume(db: sqlite3.Connection, record: ResumeVersion) -> None:
         _insert(db, "resume_versions", record)
+
+    @staticmethod
+    def resume_import(db: sqlite3.Connection, import_id: str) -> ResumeImport:
+        row = db.execute("SELECT * FROM resume_imports WHERE id = ?", (import_id,)).fetchone()
+        return _parse(ResumeImport, _required(row, "resume import"), "lines", "sections")
+
+    @staticmethod
+    def import_for_request(db: sqlite3.Connection, request_id: str) -> ResumeImport | None:
+        row = db.execute("SELECT * FROM resume_imports WHERE request_id = ?", (request_id,)).fetchone()
+        return _parse(ResumeImport, row, "lines", "sections") if row is not None else None
+
+    @staticmethod
+    def resume_imports(db: sqlite3.Connection) -> list[ResumeImport]:
+        return [_parse(ResumeImport, row, "lines", "sections") for row in db.execute(
+            "SELECT * FROM resume_imports ORDER BY created_at, id",
+        )]
+
+    @staticmethod
+    def add_resume_import(db: sqlite3.Connection, record: ResumeImport) -> None:
+        _insert(db, "resume_imports", record)
+
+    @staticmethod
+    def update_resume_import(db: sqlite3.Connection, record: ResumeImport) -> None:
+        db.execute(
+            """UPDATE resume_imports SET status = ?, text = ?, lines = ?, sections = ?, error_code = ?,
+                resume_version_id = ?, updated_at = ? WHERE id = ?""",
+            (record.status, record.text,
+             json.dumps([item.model_dump() for item in record.lines], ensure_ascii=False),
+             json.dumps([item.model_dump() for item in record.sections], ensure_ascii=False),
+             record.error_code, record.resume_version_id, record.updated_at.isoformat(), record.id),
+        )
 
     @staticmethod
     def update_resume(db: sqlite3.Connection, record: ResumeVersion) -> None:
