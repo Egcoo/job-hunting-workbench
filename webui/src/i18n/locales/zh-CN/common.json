@@ -2907,6 +2907,52 @@
     "planSaved": "已保存到准备清单",
     "draftCancelled": "草稿已取消",
     "planConflict": "计划或任务状态已变化，请刷新后核对清单。",
-    "plansUnsupported": "当前宿主不支持计划保存，可继续对话。"
+    "plansUnsupported": "当前宿主不支持计划保存，可继续对话。",
+    "resumeImport": "导入简历文件",
+    "resumeImportHint": "支持文本型 PDF、DOCX，单个不超过 6 MiB。本地提取文字，不识别图片。",
+    "resumeImportIntro": "上传简历，核对后确认版本。",
+    "selectResumeFile": "选择简历文件",
+    "importWorking": "正在导入…",
+    "importFile": "导入文件",
+    "importFileInvalid": "请选择非空的 PDF 或 DOCX，单个不超过 6 MiB。",
+    "importHistory": "导入记录（{{count}}）",
+    "importRecoveryHint": "若刷新或服务重启后仍停在处理中，可点击重新解析。",
+    "openImportedResume": "查看导入版本",
+    "retryImport": "重新解析",
+    "importSource": "文件来源",
+    "originalFile": "原文件",
+    "downloadOriginal": "下载原文件",
+    "importReviewHint": "原文件和提取原文会保留。请核对排版、缺漏和整理字段；确认前仅为草稿。",
+    "importSourceError": "无法读取原文件或提取原文，请重试或检查文件是否可用。",
+    "extractedOriginal": "提取原文与出处",
+    "sourceLine": "第 {{number}} 行",
+    "reviewedFields": "核对整理内容",
+    "reviewedFieldsHint": "按明确的章节标题整理，未提取的内容留空。请结合原文核对，新增内容视为你的填写。",
+    "fileSource": "{{format}} 文件",
+    "importFinished": "导入处理已结束，请检查草稿或失败原因。",
+    "importStatus": {
+      "processing": "处理中",
+      "ready": "已提取",
+      "failed": "失败"
+    },
+    "importErrors": {
+      "invalid_document": "无法解析文件，请检查是否损坏或格式不符，重新导出后上传。",
+      "encrypted": "PDF 已加密，请导出未加密版本后上传。",
+      "empty_document": "没有读到有效文字。若为扫描件，请改用文本型 PDF、DOCX 或粘贴文字。",
+      "text_limit": "提取文字超过 200,000 字符，请精简文件后重新上传。",
+      "safety_limit": "文件页数或内部内容超出解析限制，请精简后重新上传。",
+      "file_unavailable": "原文件不可用，请重新上传；已有简历版本会保留。"
+    },
+    "resumeFields": {
+      "education": "教育经历",
+      "projects": "项目经历",
+      "skills": "技能",
+      "summary": "个人简介 / 评价",
+      "experience": "工作 / 实习经历"
+    },
+    "saveBeforeImport": "导入前，请先保存当前简历的修改。",
+    "pdfSourceLocation": "第 {{page}} 页，第 {{line}} 行",
+    "docxSourceLocation": "第 {{paragraph}} 段",
+    "resumeDraftHint": "保存草稿后，请核对正文及整理内容，再确认使用。"
   }
 }

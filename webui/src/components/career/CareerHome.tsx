@@ -54,7 +54,7 @@ export function CareerHome({ data, thread, busy, onNavigate, onCreate, onBackToC
       <section className="min-w-0 space-y-3 rounded-2xl border bg-muted/20 p-5">
         <FileText className="h-5 w-5 text-orange-800 dark:text-orange-200" aria-hidden="true" />
         <h3 className="font-medium">{t("career.resumeIntro")}</h3>
-        <p className="text-sm leading-relaxed text-muted-foreground">{t("career.resumeIntroHint")}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{t(webuiCapabilities.includes("webui.career.resume-import.v1") ? "career.resumeImportIntro" : "career.resumeIntroHint")}</p>
         <Button variant="link" className="h-auto max-w-full gap-2 whitespace-normal p-0 text-orange-800 dark:text-orange-200" onClick={() => onNavigate("resumes")}>
           {t(data.resumes.length ? "career.resumes" : "career.addResume")}<ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </Button>

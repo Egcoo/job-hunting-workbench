@@ -2907,6 +2907,52 @@
     "planSaved": "Enregistré dans la liste de préparation",
     "draftCancelled": "Brouillon annulé",
     "planConflict": "Le plan ou la tâche a changé. Actualisez et vérifiez la liste de préparation.",
-    "plansUnsupported": "Cet hôte ne permet pas d’enregistrer les plans. Vous pouvez poursuivre la conversation."
+    "plansUnsupported": "Cet hôte ne permet pas d’enregistrer les plans. Vous pouvez poursuivre la conversation.",
+    "resumeImport": "Importer un CV",
+    "resumeImportHint": "PDF texte ou DOCX, jusqu’à 6 MiB. Extraction locale du texte, sans reconnaissance d’images.",
+    "resumeImportIntro": "Importez le CV, vérifiez-le puis confirmez une version.",
+    "selectResumeFile": "Choisir le fichier du CV",
+    "importWorking": "Importation…",
+    "importFile": "Importer le fichier",
+    "importFileInvalid": "Choisissez un PDF ou DOCX non vide de 6 MiB maximum.",
+    "importHistory": "Historique des imports ({{count}})",
+    "importRecoveryHint": "Si le traitement reste en cours après actualisation ou redémarrage, relancez l’extraction.",
+    "openImportedResume": "Voir la version importée",
+    "retryImport": "Relancer l’extraction",
+    "importSource": "Source du fichier",
+    "originalFile": "Fichier original",
+    "downloadOriginal": "Télécharger l’original",
+    "importReviewHint": "L’original et le texte extrait sont conservés. Vérifiez la mise en page, les omissions et les champs avant de confirmer.",
+    "importSourceError": "Impossible de lire l’original ou le texte. Réessayez ou vérifiez le fichier.",
+    "extractedOriginal": "Texte extrait et emplacements",
+    "sourceLine": "Ligne {{number}}",
+    "reviewedFields": "Vérifier les champs extraits",
+    "reviewedFieldsHint": "Regroupement selon les titres explicites ; les sections absentes restent vides. Vérifiez avec l’original. Les ajouts sont vos propres saisies.",
+    "fileSource": "Fichier {{format}}",
+    "importFinished": "Import terminé. Vérifiez le brouillon ou l’erreur.",
+    "importStatus": {
+      "processing": "En cours",
+      "ready": "Texte extrait",
+      "failed": "Échec"
+    },
+    "importErrors": {
+      "invalid_document": "Analyse impossible. Vérifiez le format et l’état du fichier, puis exportez-le et importez-le à nouveau.",
+      "encrypted": "Le PDF est chiffré. Importez une copie non chiffrée.",
+      "empty_document": "Aucun texte exploitable. Pour un scan, utilisez un PDF texte, un DOCX ou collez le texte.",
+      "text_limit": "Le texte dépasse 200 000 caractères. Réduisez le document puis réimportez-le.",
+      "safety_limit": "Le nombre de pages ou le contenu interne dépasse la limite. Réduisez le document puis réimportez-le.",
+      "file_unavailable": "L’original est indisponible. Importez-le à nouveau ; les versions existantes sont conservées."
+    },
+    "resumeFields": {
+      "education": "Formation",
+      "projects": "Projets",
+      "skills": "Compétences",
+      "summary": "Présentation",
+      "experience": "Expérience professionnelle / stages"
+    },
+    "saveBeforeImport": "Enregistrez les modifications du CV actuel avant d’importer un fichier.",
+    "pdfSourceLocation": "Page {{page}}, ligne {{line}}",
+    "docxSourceLocation": "Paragraphe {{paragraph}}",
+    "resumeDraftHint": "Enregistrez le brouillon puis vérifiez le texte et les champs avant de confirmer son utilisation."
   }
 }

@@ -2907,6 +2907,52 @@
     "planSaved": "Saved to the preparation list",
     "draftCancelled": "Draft cancelled",
     "planConflict": "The plan or task has changed. Refresh and check the preparation list.",
-    "plansUnsupported": "This host does not support saving plans. You can continue chatting."
+    "plansUnsupported": "This host does not support saving plans. You can continue chatting.",
+    "resumeImport": "Import resume",
+    "resumeImportHint": "Text-based PDF or DOCX, up to 6 MiB. Text is extracted locally; images are not recognized.",
+    "resumeImportIntro": "Upload a resume, review it, then confirm a version.",
+    "selectResumeFile": "Choose resume file",
+    "importWorking": "Importing…",
+    "importFile": "Import file",
+    "importFileInvalid": "Choose a nonempty PDF or DOCX file up to 6 MiB.",
+    "importHistory": "Import history ({{count}})",
+    "importRecoveryHint": "If processing remains after a refresh or service restart, retry extraction.",
+    "openImportedResume": "View imported version",
+    "retryImport": "Retry extraction",
+    "importSource": "Document source",
+    "originalFile": "Original file",
+    "downloadOriginal": "Download original",
+    "importReviewHint": "The original file and extracted text are retained. Check layout, missing content and review fields before confirming.",
+    "importSourceError": "Could not load the original or extracted text. Retry or check that the file is available.",
+    "extractedOriginal": "Extracted text and locations",
+    "sourceLine": "Line {{number}}",
+    "reviewedFields": "Review extracted fields",
+    "reviewedFieldsHint": "Grouped by explicit section headings. Missing sections stay empty. Review them with the original; additions are your own input.",
+    "fileSource": "{{format}} file",
+    "importFinished": "Import finished. Check the draft or the reported error.",
+    "importStatus": {
+      "processing": "Processing",
+      "ready": "Text extracted",
+      "failed": "Failed"
+    },
+    "importErrors": {
+      "invalid_document": "Cannot parse this file. Check its format and whether it is damaged, then export and upload again.",
+      "encrypted": "The PDF is encrypted. Export an unencrypted copy and upload it.",
+      "empty_document": "No usable text found. For scans, use a text-based PDF, DOCX, or paste text.",
+      "text_limit": "The text exceeds the 200,000-character limit. Shorten the document and upload again.",
+      "safety_limit": "The page count or internal document content exceeds the extraction limit. Shorten it and upload again.",
+      "file_unavailable": "The original file is unavailable. Upload it again; existing resume versions are retained."
+    },
+    "resumeFields": {
+      "education": "Education",
+      "projects": "Projects",
+      "skills": "Skills",
+      "summary": "Summary",
+      "experience": "Work / internship experience"
+    },
+    "saveBeforeImport": "Save the current resume changes before importing a file.",
+    "pdfSourceLocation": "Page {{page}}, line {{line}}",
+    "docxSourceLocation": "Paragraph {{paragraph}}",
+    "resumeDraftHint": "Save the draft, then review its text and fields before confirming use."
   }
 }

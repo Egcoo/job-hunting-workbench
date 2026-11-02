@@ -2907,6 +2907,52 @@
     "planSaved": "준비 목록에 저장했습니다",
     "draftCancelled": "초안을 취소했습니다",
     "planConflict": "계획 또는 할 일이 변경되었습니다. 새로고침 후 준비 목록을 확인하세요.",
-    "plansUnsupported": "이 호스트는 계획 저장을 지원하지 않습니다. 대화는 계속할 수 있습니다."
+    "plansUnsupported": "이 호스트는 계획 저장을 지원하지 않습니다. 대화는 계속할 수 있습니다.",
+    "resumeImport": "이력서 파일 가져오기",
+    "resumeImportHint": "텍스트 PDF 또는 DOCX, 최대 6 MiB. 텍스트는 로컬에서 추출하며 이미지는 인식하지 않습니다.",
+    "resumeImportIntro": "이력서를 업로드하고 내용을 검토한 뒤 버전을 확정하세요.",
+    "selectResumeFile": "이력서 파일 선택",
+    "importWorking": "가져오는 중…",
+    "importFile": "파일 가져오기",
+    "importFileInvalid": "비어 있지 않은 PDF 또는 DOCX 파일을 선택하세요. 최대 6 MiB입니다.",
+    "importHistory": "가져오기 기록 ({{count}})",
+    "importRecoveryHint": "새로고침이나 서비스 재시작 후에도 처리 중이면 추출을 다시 시도하세요.",
+    "openImportedResume": "가져온 버전 보기",
+    "retryImport": "추출 다시 시도",
+    "importSource": "파일 출처",
+    "originalFile": "원본 파일",
+    "downloadOriginal": "원본 다운로드",
+    "importReviewHint": "원본과 추출 텍스트가 보존됩니다. 확정 전에 배치, 누락 및 정리된 항목을 검토하세요.",
+    "importSourceError": "원본 또는 추출 텍스트를 읽을 수 없습니다. 다시 시도하거나 파일을 확인하세요.",
+    "extractedOriginal": "추출 원문 및 위치",
+    "sourceLine": "{{number}}행",
+    "reviewedFields": "정리된 항목 검토",
+    "reviewedFieldsHint": "명시된 제목에 따라 분류하며 없는 항목은 비워 둡니다. 원문과 대조하세요. 추가 내용은 본인 입력입니다.",
+    "fileSource": "{{format}} 파일",
+    "importFinished": "가져오기가 끝났습니다. 초안이나 오류를 확인하세요.",
+    "importStatus": {
+      "processing": "처리 중",
+      "ready": "추출됨",
+      "failed": "실패"
+    },
+    "importErrors": {
+      "invalid_document": "파일을 분석할 수 없습니다. 형식과 손상 여부를 확인한 뒤 다시 내보내 업로드하세요.",
+      "encrypted": "암호화된 PDF입니다. 암호화되지 않은 사본을 업로드하세요.",
+      "empty_document": "유효한 텍스트가 없습니다. 스캔 문서는 텍스트 PDF, DOCX 또는 텍스트 붙여넣기를 사용하세요.",
+      "text_limit": "텍스트가 200,000자를 초과합니다. 문서를 줄여 다시 업로드하세요.",
+      "safety_limit": "페이지 수나 내부 내용이 추출 한도를 초과합니다. 문서를 줄여 다시 업로드하세요.",
+      "file_unavailable": "원본 파일을 사용할 수 없습니다. 다시 업로드하세요. 기존 이력서 버전은 보존됩니다."
+    },
+    "resumeFields": {
+      "education": "학력",
+      "projects": "프로젝트",
+      "skills": "기술",
+      "summary": "소개 / 자기평가",
+      "experience": "직장 / 인턴 경험"
+    },
+    "saveBeforeImport": "파일을 가져오기 전에 현재 이력서 변경 사항을 저장하세요.",
+    "pdfSourceLocation": "{{page}}페이지, {{line}}행",
+    "docxSourceLocation": "{{paragraph}}번째 문단",
+    "resumeDraftHint": "초안을 저장한 뒤 본문과 정리 항목을 검토하고 사용을 확정하세요."
   }
 }

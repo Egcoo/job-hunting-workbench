@@ -2907,6 +2907,52 @@
     "planSaved": "Salvo na lista de preparação",
     "draftCancelled": "Rascunho cancelado",
     "planConflict": "O plano ou a tarefa mudou. Atualize e confira a lista de preparação.",
-    "plansUnsupported": "Este host não permite salvar planos. Você pode continuar a conversa."
+    "plansUnsupported": "Este host não permite salvar planos. Você pode continuar a conversa.",
+    "resumeImport": "Importar currículo",
+    "resumeImportHint": "PDF com texto ou DOCX, até 6 MiB. O texto é extraído localmente; imagens não são reconhecidas.",
+    "resumeImportIntro": "Envie o currículo, revise e confirme uma versão.",
+    "selectResumeFile": "Escolher arquivo do currículo",
+    "importWorking": "Importando…",
+    "importFile": "Importar arquivo",
+    "importFileInvalid": "Escolha um PDF ou DOCX não vazio de até 6 MiB.",
+    "importHistory": "Histórico de importação ({{count}})",
+    "importRecoveryHint": "Se continuar processando após atualizar ou reiniciar o serviço, tente extrair novamente.",
+    "openImportedResume": "Ver versão importada",
+    "retryImport": "Tentar extrair novamente",
+    "importSource": "Origem do arquivo",
+    "originalFile": "Arquivo original",
+    "downloadOriginal": "Baixar original",
+    "importReviewHint": "O original e o texto extraído são mantidos. Revise a formatação, as omissões e os campos antes de confirmar.",
+    "importSourceError": "Não foi possível ler o original ou o texto. Tente novamente ou verifique o arquivo.",
+    "extractedOriginal": "Texto extraído e localização",
+    "sourceLine": "Linha {{number}}",
+    "reviewedFields": "Revisar campos extraídos",
+    "reviewedFieldsHint": "Agrupados por títulos explícitos; seções ausentes ficam vazias. Confira com o original. Adições são informações suas.",
+    "fileSource": "Arquivo {{format}}",
+    "importFinished": "Importação encerrada. Confira o rascunho ou o erro.",
+    "importStatus": {
+      "processing": "Processando",
+      "ready": "Texto extraído",
+      "failed": "Falhou"
+    },
+    "importErrors": {
+      "invalid_document": "Não foi possível analisar. Verifique o formato e possíveis danos; exporte e envie novamente.",
+      "encrypted": "O PDF está criptografado. Envie uma cópia sem criptografia.",
+      "empty_document": "Nenhum texto utilizável. Para digitalizações, use PDF com texto, DOCX ou cole o texto.",
+      "text_limit": "O texto excede 200.000 caracteres. Reduza o documento e envie novamente.",
+      "safety_limit": "O número de páginas ou conteúdo interno excede o limite. Reduza e envie novamente.",
+      "file_unavailable": "O original está indisponível. Envie novamente; as versões existentes serão mantidas."
+    },
+    "resumeFields": {
+      "education": "Formação",
+      "projects": "Projetos",
+      "skills": "Habilidades",
+      "summary": "Resumo",
+      "experience": "Experiência profissional / estágio"
+    },
+    "saveBeforeImport": "Salve as alterações do currículo atual antes de importar um arquivo.",
+    "pdfSourceLocation": "Página {{page}}, linha {{line}}",
+    "docxSourceLocation": "Parágrafo {{paragraph}}",
+    "resumeDraftHint": "Salve o rascunho e revise o texto e os campos antes de confirmar o uso."
   }
 }

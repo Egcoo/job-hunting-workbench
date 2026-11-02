@@ -7,10 +7,10 @@ interface Version {
   name: string;
   text: string;
   status: "draft" | "confirmed";
-  source: "text";
+  source: "text" | "pdf" | "docx";
   created_at: string;
 }
-export interface ResumeVersion extends Version { notes: string; profile: Record<string, unknown> }
+export interface ResumeVersion extends Version { notes: string; profile: Record<string, unknown>; import_id?: string | null }
 export interface JobVersion extends Version { job_id: string; company: string | null; requirements: Record<string, unknown> }
 export interface PersonalConditions {
   days_per_week: number | null;
@@ -52,6 +52,7 @@ export interface CareerState {
   workspace_ref: string;
   workspace_id: string;
   resumes: ResumeVersion[];
+  imports?: ResumeImportSummary[];
   jobs: JobVersion[];
   threads: CareerThread[];
   deleted_thread_ids?: string[];
@@ -84,3 +85,17 @@ export interface ResumeWrite { id?: string; name: string; notes: string; text: s
 export interface JobWrite { id?: string; name: string; company: string | null; text: string; requirements: Record<string, unknown> }
 export type ResumeAction = "career.resume.create" | "career.resume.edit" | "career.resume.revise";
 export type JobAction = "career.job.create" | "career.job.edit" | "career.job.revise";
+
+export type ResumeSectionKey = "education" | "projects" | "skills" | "summary" | "experience";
+export interface ResumeImportSummary {
+  id: string; filename: string; file_type: "pdf" | "docx"; size: number; name: string;
+  status: "processing" | "ready" | "failed";
+  error_code: "invalid_document" | "encrypted" | "empty_document" | "text_limit" | "safety_limit" | "file_unavailable" | null;
+  resume_version_id: string | null; created_at: string; updated_at: string;
+}
+export interface ResumeImportDetail extends ResumeImportSummary {
+  text: string;
+  lines: Array<{ number: number; locator: string; text: string }>;
+  sections: Array<{ key: ResumeSectionKey; line_numbers: number[] }>;
+}
+export interface ResumeImportResult { import: ResumeImportSummary; resume: ResumeVersion | null }

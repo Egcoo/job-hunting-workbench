@@ -1,5 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -35,6 +35,43 @@ async function stop() {
   const exited = once(server, "exit");
   server.stdin.end("stop\n");
   await exited;
+}
+
+function resumeSamples() {
+  const python = process.env.NANOBOT_TEST_PYTHON ?? path.join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+  const generated = spawnSync(python, ["-X", "utf8", "-c", `
+import sys
+from pathlib import Path
+from docx import Document
+from pypdf import PdfWriter
+from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
+from PIL import Image, ImageDraw
+folder=Path(sys.argv[1])/'resume-samples'
+folder.mkdir()
+document=Document()
+for text in ['教育背景','工程测试大学 CV_FILE_6','项目经历','工程项目原型；用户访谈经历未说明。','专业技能','Excel']:
+    document.add_paragraph(text)
+document.save(folder/'resume.docx')
+writer=PdfWriter()
+page=writer.add_blank_page(width=595,height=842)
+image=Image.new('RGB',(420,100),'white')
+ImageDraw.Draw(image).text((20,30),'Engineering scanned resume: image-only text.',fill='black')
+image.save(folder/'scan.pdf',format='PDF')
+font=DictionaryObject({NameObject('/Type'):NameObject('/Font'),NameObject('/Subtype'):NameObject('/Type1'),NameObject('/BaseFont'):NameObject('/Helvetica')})
+page[NameObject('/Resources')]=DictionaryObject({NameObject('/Font'):DictionaryObject({NameObject('/F1'):font})})
+contents=DecodedStreamObject()
+contents.set_data(b'BT /F1 12 Tf 40 780 Td (EDUCATION) Tj 0 -20 Td (Engineering university CV_FILE_6) Tj 0 -20 Td (PROJECTS) Tj 0 -20 Td (Built a prototype.) Tj ET')
+page[NameObject('/Contents')]=writer._add_object(contents)
+writer.write(folder/'resume.pdf')
+`, root], { cwd: repo, windowsHide: true, encoding: "utf8" });
+  if (generated.status !== 0) throw new Error(`Could not create disposable resume samples: ${generated.stderr}`);
+  const provided = process.env.NANOBOT_CAREER_IMPORT_SAMPLES;
+  return {
+    pdf: provided ? path.join(provided, "模拟简历.pdf") : path.join(root, "resume-samples/resume.pdf"),
+    docx: provided ? path.join(provided, "模拟简历.docx") : path.join(root, "resume-samples/resume.docx"),
+    scan: path.join(root, "resume-samples/scan.pdf"),
+    marker: provided ? "低打扰颈肩健康管理" : "CV_FILE_6",
+  };
 }
 function nav(page: Page, name: string) { return page.getByRole("navigation", { name: "求职页面" }).getByRole("button", { name, exact: true }); }
 
@@ -88,6 +125,94 @@ async function prepareConversation(page: Page) {
   await choose.getByRole("button", { name: "进入准备记录" }).click();
   await expect(page.getByRole("textbox", { name: "向求职助手提问" })).toBeEnabled();
 }
+
+test("career resume files become reviewed versions and retain originals across restart", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const samples = resumeSamples();
+  const name = path.basename(samples.pdf).replace(/\.pdf$/i, "");
+  await page.addInitScript(() => { localStorage.setItem("nanobot.locale", "zh-CN"); localStorage.setItem("nanobot-webui.theme", "dark"); });
+  await page.goto(`${base}/#/career`);
+  await nav(page, "我的简历").click();
+  const importer = page.getByRole("region", { name: "导入简历文件" });
+  const editor = page.getByRole("form", { name: "简历编辑" });
+  await importer.getByLabel("选择简历文件").setInputFiles(samples.pdf);
+  await importer.getByRole("button", { name: "导入文件", exact: true }).click();
+  await expect(editor.getByLabel("简历正文", { exact: true })).toHaveValue(new RegExp(samples.marker));
+  await expect(editor.getByRole("button", { name: "确认使用", exact: true })).toBeEnabled();
+  const originalText = await editor.getByLabel("简历正文", { exact: true }).inputValue();
+  await editor.getByLabel("简历正文", { exact: true }).fill(originalText + "\n工程核对补充：CV_A7 / REVIEW_FILE_6。用户补充，不属于文件原文。");
+  await editor.getByLabel("技能", { exact: true }).fill("工程核对补充：Excel");
+  await expect(editor.getByRole("button", { name: "确认使用", exact: true })).toBeDisabled();
+  await editor.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(editor.getByRole("button", { name: "确认使用", exact: true })).toBeEnabled();
+  await editor.getByText("提取原文与出处", { exact: true }).click();
+  const evidence = editor.getByRole("region", { name: "文件来源" });
+  await expect(evidence.getByRole("list")).toContainText(samples.marker);
+  await expect(evidence.getByRole("list")).not.toContainText("REVIEW_FILE_6");
+  const downloadEvent = page.waitForEvent("download");
+  await evidence.getByRole("button", { name: "下载原文件", exact: true }).click();
+  const download = await downloadEvent;
+  const downloaded = await download.path();
+  if (!downloaded) throw new Error("Original file download did not finish");
+  expect(readFileSync(downloaded)).toEqual(readFileSync(samples.pdf));
+  await editor.getByRole("button", { name: "确认使用", exact: true }).click();
+  await expect(editor.getByLabel("简历正文", { exact: true })).toHaveAttribute("readonly");
+  await importer.getByLabel("选择简历文件").setInputFiles(samples.docx);
+  await importer.getByRole("button", { name: "导入文件", exact: true }).click();
+  await expect(editor.getByRole("heading")).toContainText("v2");
+  await expect(editor.getByLabel("简历正文", { exact: true })).toHaveValue(new RegExp(samples.marker));
+  const versions = page.getByRole("list", { name: "简历版本" });
+  await expect(versions.getByRole("button")).toHaveCount(2);
+  await expect(versions.getByRole("button", { name: /v1/ })).toContainText("PDF 文件");
+  await expect(versions.getByRole("button", { name: /v2/ })).toContainText("DOCX 文件");
+  await importer.getByLabel("选择简历文件").setInputFiles(samples.scan);
+  await importer.getByRole("button", { name: "导入文件", exact: true }).click();
+  await expect(importer.getByText(/没有读到有效文字/)).toBeVisible();
+  await importer.getByRole("button", { name: "重新解析", exact: true }).click();
+  await expect(importer.getByRole("button", { name: "重新解析", exact: true })).toBeEnabled();
+  await expect(versions.getByRole("button")).toHaveCount(2);
+  await page.screenshot({ path: info.outputPath("career-import-review.png"), fullPage: true });
+  await page.setViewportSize({ width: 360, height: 850 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("career-import-narrow.png"), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await nav(page, "岗位库").click();
+  const job = page.getByRole("form", { name: "岗位编辑" });
+  await job.getByLabel("岗位名称").fill("JOB_B4");
+  await job.getByLabel("岗位原文").fill("工程虚构岗位：产品原型和用户调研。");
+  await job.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await job.getByRole("button", { name: "确认使用", exact: true }).click();
+  await nav(page, "工作台").click();
+  const target = page.getByRole("form", { name: "选择准备资料" });
+  await expect(target.getByLabel("简历版本").getByRole("option", { name: `${name} · v2`, exact: true })).toHaveCount(0);
+  await target.getByLabel("简历版本").selectOption({ label: `${name} · v1` });
+  await target.getByLabel("岗位版本").selectOption({ label: "JOB_B4 · v1" });
+  await target.getByRole("button", { name: "进入准备记录" }).click();
+  await page.getByRole("textbox", { name: "向求职助手提问", exact: true }).fill("请告诉我项目代号");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.getByRole("region", { name: "求职对话", exact: true }).first().getByText(/CV_A7/).last()).toBeVisible();
+  const preparation = page.url();
+  await page.reload();
+  await expect(page.getByRole("region", { name: "当前准备" })).toContainText(`${name} · v1`);
+  await stop(); await start();
+  // A same-hash goto can keep the old document and expired gateway token.
+  // Reload fully so recovery is verified with a new bootstrap and real reads.
+  await page.reload();
+  await expect(page).toHaveURL(preparation);
+  await nav(page, "我的简历").click();
+  await versions.getByRole("button", { name: /v1/ }).click();
+  await expect(editor.getByLabel("简历正文", { exact: true })).toHaveValue(/REVIEW_FILE_6/);
+  await expect(editor.getByLabel("简历正文", { exact: true })).toHaveAttribute("readonly");
+  const afterRestart = page.waitForEvent("download", { timeout: 15_000 });
+  const restoredResponse = page.waitForResponse((response) => response.url().includes("/api/career/resume-file?"));
+  await editor.getByRole("button", { name: "下载原文件", exact: true }).click();
+  const response = await restoredResponse;
+  expect(response.status(), response.ok() ? "original file after restart" : await response.text()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/octet-stream");
+  const restored = await (await afterRestart).path();
+  if (!restored) throw new Error("Original file download after restart did not finish");
+  expect(readFileSync(restored)).toEqual(readFileSync(samples.pdf));
+});
 
 test("career conversation sends the selected materials and preserves sources across replies and reload", async ({ page }, info) => {
   test.setTimeout(process.env.NANOBOT_CAREER_LIVE_MODEL === "1" ? 180_000 : 90_000);

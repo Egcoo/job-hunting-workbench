@@ -4,7 +4,10 @@ import type {
   PersonalConditions, ResumeAction, ResumeVersion, ResumeWrite,
   CareerConversationData,
   CareerPlan, CareerPlanSource, CareerTask, CareerTaskInput,
+  ResumeImportSummary, ResumeImportDetail, ResumeImportResult,
 } from "@/lib/career-types";
+import type { NanobotClient } from "@/lib/nanobot-client";
+import { fetchWithTimeout } from "@/lib/http";
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -17,7 +20,9 @@ function version(value: unknown): value is Record<string, unknown> {
     && (value.status === "draft" || value.status === "confirmed");
 }
 function resume(value: unknown): value is ResumeVersion {
-  return version(value) && typeof value.notes === "string" && record(value.profile);
+  return version(value) && typeof value.notes === "string" && record(value.profile)
+    && (value.source === undefined || ["text", "pdf", "docx"].includes(String(value.source)))
+    && (value.import_id === undefined || value.import_id === null || typeof value.import_id === "string");
 }
 function job(value: unknown): value is JobVersion {
   return version(value) && typeof value.job_id === "string"
@@ -47,6 +52,25 @@ function task(value: unknown): value is CareerTask {
     && (value.basis === undefined || typeof value.basis === "string") && (value.status === "pending" || value.status === "completed");
 }
 
+function resumeImport(value: unknown): value is ResumeImportSummary {
+  return record(value) && ["id", "filename", "name"].every((key) => typeof value[key] === "string")
+    && /^import_[a-f0-9]{32}$/.test(String(value.id)) && ["pdf", "docx"].includes(String(value.file_type))
+    && Number.isSafeInteger(value.size) && Number(value.size) > 0 && Number(value.size) <= 6 * 1024 * 1024
+    && ["processing", "ready", "failed"].includes(String(value.status))
+    && (value.error_code === null || ["invalid_document", "encrypted", "empty_document", "text_limit", "safety_limit", "file_unavailable"].includes(String(value.error_code)))
+    && (value.resume_version_id === null || typeof value.resume_version_id === "string")
+    && (value.status === "ready" ? typeof value.resume_version_id === "string" && value.error_code === null
+      : value.resume_version_id === null && (value.status === "failed" ? value.error_code !== null : value.error_code === null))
+    && ["created_at", "updated_at"].every((key) => typeof value[key] === "string" && Number.isFinite(Date.parse(String(value[key]))));
+}
+function importResult(value: unknown): ResumeImportResult {
+  if (!record(value) || !resumeImport(value.import)) return invalid();
+  if (value.import.status === "ready") {
+    if (!resume(value.resume) || value.resume.id !== value.import.resume_version_id || value.resume.import_id !== value.import.id || value.resume.source !== value.import.file_type) return invalid();
+  } else if (value.resume !== null || value.import.resume_version_id !== null) return invalid();
+  return value as unknown as ResumeImportResult;
+}
+
 export async function fetchCareerWorkspaces(token: string, signal?: AbortSignal): Promise<CareerWorkspace[]> {
   const value = await request<unknown>("/api/career/workspaces", token, { signal }, API_READ_TIMEOUT_MS);
   if (!record(value) || !Array.isArray(value.workspaces)) return invalid();
@@ -62,6 +86,7 @@ export async function fetchCareerState(token: string, reference: string, signal?
   const value = await request<unknown>(`/api/career?workspace_ref=${encodeURIComponent(reference)}`, token, { signal }, API_READ_TIMEOUT_MS);
   if (!record(value) || value.workspace_ref !== reference || typeof value.workspace_id !== "string"
     || !Array.isArray(value.resumes) || !value.resumes.every(resume)
+    || (value.imports !== undefined && (!Array.isArray(value.imports) || !value.imports.every(resumeImport)))
     || !Array.isArray(value.jobs) || !value.jobs.every(job)
     || !Array.isArray(value.threads) || !value.threads.every(thread)
     || (value.deleted_thread_ids !== undefined && (!Array.isArray(value.deleted_thread_ids) || !value.deleted_thread_ids.every((item) => typeof item === "string")))
@@ -76,6 +101,51 @@ export async function fetchCareerState(token: string, reference: string, signal?
     || !record(value.chat_available) || !Object.values(value.chat_available).every((item) => typeof item === "boolean")) return invalid();
   // All UI-consumed fields are checked at this transport boundary.
   return value as unknown as CareerState;
+}
+
+export async function importCareerResume(
+  client: Pick<NanobotClient, "stageAttachments" | "requestMutation">,
+  reference: string, file: File, requestId: string,
+): Promise<ResumeImportResult> {
+  const extension = file.name.split(".").at(-1)?.toLowerCase();
+  const mime = extension === "pdf" ? "application/pdf" : extension === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "";
+  if (!mime || file.size === 0 || file.size > 6 * 1024 * 1024) throw new ApiError(400, "career_invalid_resume_file");
+  const data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("File read failed"));
+    reader.onerror = () => reject(new Error("File read failed"));
+    reader.readAsDataURL(new Blob([file], { type: mime }));
+  });
+  const references = await client.stageAttachments([{ data_url: data, name: file.name }]);
+  const attachment = references[0];
+  if (!attachment || !("reference" in attachment) || typeof attachment.reference !== "string") return invalid();
+  const result = await mutation<unknown>(client, "career.resume.import", {
+    workspace_ref: reference, request_id: requestId, attachment_ref: attachment.reference,
+    filename: file.name, size: file.size, name: file.name.replace(/\.(pdf|docx)$/i, ""),
+  }, 120_000);
+  return importResult(result);
+}
+
+export async function retryCareerResumeImport(transport: WebUIMutationTransport, reference: string, id: string): Promise<ResumeImportResult> {
+  return importResult(await mutation<unknown>(transport, "career.resume.import.retry", { workspace_ref: reference, id }, 120_000));
+}
+
+export async function fetchCareerResumeImport(token: string, reference: string, id: string, signal?: AbortSignal): Promise<ResumeImportDetail> {
+  const value = await request<unknown>(`/api/career/resume-import?workspace_ref=${encodeURIComponent(reference)}&id=${encodeURIComponent(id)}`, token, { signal }, API_READ_TIMEOUT_MS);
+  if (!resumeImport(value) || value.id !== id || !record(value) || typeof value.text !== "string"
+    || !Array.isArray(value.lines) || !value.lines.every((line, index) => record(line) && line.number === index + 1 && typeof line.locator === "string" && typeof line.text === "string")
+    || !Array.isArray(value.sections) || !value.sections.every((section) => record(section) && ["education", "projects", "skills", "summary", "experience"].includes(String(section.key))
+      && Array.isArray(section.line_numbers) && section.line_numbers.every((number) => Number.isInteger(number) && number > 0 && number <= (value.lines as unknown[]).length))) return invalid();
+  return value as unknown as ResumeImportDetail;
+}
+
+export async function fetchCareerResumeOriginal(token: string, reference: string, id: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetchWithTimeout(`/api/career/resume-file?workspace_ref=${encodeURIComponent(reference)}&id=${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` }, credentials: "same-origin", redirect: "error", cache: "no-store", signal,
+  }, API_READ_TIMEOUT_MS);
+  if (!response.ok) throw new ApiError(response.status, "career_original_unavailable");
+  if (!response.headers.get("content-type")?.startsWith("application/octet-stream")) return invalid();
+  return response.blob();
 }
 
 export async function saveCareerResume(transport: WebUIMutationTransport, reference: string, action: ResumeAction, payload: ResumeWrite): Promise<ResumeVersion> {

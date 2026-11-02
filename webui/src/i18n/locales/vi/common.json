@@ -2907,6 +2907,52 @@
     "planSaved": "Đã lưu vào danh sách chuẩn bị",
     "draftCancelled": "Đã hủy bản nháp",
     "planConflict": "Kế hoạch hoặc công việc đã thay đổi. Hãy tải lại và kiểm tra danh sách chuẩn bị.",
-    "plansUnsupported": "Máy chủ này chưa hỗ trợ lưu kế hoạch. Bạn vẫn có thể tiếp tục trò chuyện."
+    "plansUnsupported": "Máy chủ này chưa hỗ trợ lưu kế hoạch. Bạn vẫn có thể tiếp tục trò chuyện.",
+    "resumeImport": "Nhập tệp CV",
+    "resumeImportHint": "PDF có văn bản hoặc DOCX, tối đa 6 MiB. Trích xuất cục bộ; không nhận dạng ảnh.",
+    "resumeImportIntro": "Tải CV lên, kiểm tra rồi xác nhận phiên bản.",
+    "selectResumeFile": "Chọn tệp CV",
+    "importWorking": "Đang nhập…",
+    "importFile": "Nhập tệp",
+    "importFileInvalid": "Chọn PDF hoặc DOCX không rỗng, tối đa 6 MiB.",
+    "importHistory": "Lịch sử nhập ({{count}})",
+    "importRecoveryHint": "Nếu vẫn đang xử lý sau khi tải lại hoặc khởi động dịch vụ, hãy thử trích xuất lại.",
+    "openImportedResume": "Xem phiên bản đã nhập",
+    "retryImport": "Trích xuất lại",
+    "importSource": "Nguồn tệp",
+    "originalFile": "Tệp gốc",
+    "downloadOriginal": "Tải tệp gốc",
+    "importReviewHint": "Tệp gốc và văn bản trích xuất được giữ lại. Kiểm tra bố cục, nội dung thiếu và các trường trước khi xác nhận.",
+    "importSourceError": "Không đọc được tệp gốc hoặc văn bản. Thử lại hoặc kiểm tra tệp.",
+    "extractedOriginal": "Văn bản trích xuất và vị trí",
+    "sourceLine": "Dòng {{number}}",
+    "reviewedFields": "Kiểm tra các trường trích xuất",
+    "reviewedFieldsHint": "Nhóm theo tiêu đề rõ ràng; mục không tìm thấy để trống. Đối chiếu bản gốc. Nội dung thêm là do bạn nhập.",
+    "fileSource": "Tệp {{format}}",
+    "importFinished": "Đã xử lý xong. Kiểm tra bản nháp hoặc lỗi.",
+    "importStatus": {
+      "processing": "Đang xử lý",
+      "ready": "Đã trích xuất",
+      "failed": "Thất bại"
+    },
+    "importErrors": {
+      "invalid_document": "Không phân tích được tệp. Kiểm tra định dạng hoặc hư hỏng, xuất rồi tải lại.",
+      "encrypted": "PDF được mã hóa. Hãy tải bản không mã hóa.",
+      "empty_document": "Không có văn bản dùng được. Với bản quét, dùng PDF có văn bản, DOCX hoặc dán văn bản.",
+      "text_limit": "Văn bản vượt quá 200.000 ký tự. Rút gọn tài liệu rồi tải lại.",
+      "safety_limit": "Số trang hoặc nội dung bên trong vượt giới hạn. Rút gọn rồi tải lại.",
+      "file_unavailable": "Tệp gốc không khả dụng. Tải lại; các phiên bản CV hiện có được giữ nguyên."
+    },
+    "resumeFields": {
+      "education": "Học vấn",
+      "projects": "Dự án",
+      "skills": "Kỹ năng",
+      "summary": "Giới thiệu",
+      "experience": "Kinh nghiệm làm việc / thực tập"
+    },
+    "saveBeforeImport": "Lưu thay đổi của CV hiện tại trước khi nhập tệp.",
+    "pdfSourceLocation": "Trang {{page}}, dòng {{line}}",
+    "docxSourceLocation": "Đoạn {{paragraph}}",
+    "resumeDraftHint": "Lưu bản nháp, kiểm tra văn bản và các trường rồi xác nhận sử dụng."
   }
 }

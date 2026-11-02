@@ -2907,6 +2907,52 @@
     "planSaved": "準備リストに保存しました",
     "draftCancelled": "下書きを取り消しました",
     "planConflict": "計画またはタスクが変更されています。更新して準備リストを確認してください。",
-    "plansUnsupported": "このホストは計画の保存に対応していません。対話は続けられます。"
+    "plansUnsupported": "このホストは計画の保存に対応していません。対話は続けられます。",
+    "resumeImport": "履歴書ファイルを取り込む",
+    "resumeImportHint": "テキスト形式の PDF・DOCX、最大 6 MiB。文字はローカルで抽出し、画像認識は行いません。",
+    "resumeImportIntro": "履歴書をアップロードし、内容を確認して版を確定します。",
+    "selectResumeFile": "履歴書ファイルを選択",
+    "importWorking": "取り込み中…",
+    "importFile": "ファイルを取り込む",
+    "importFileInvalid": "空でない PDF または DOCX（最大 6 MiB）を選択してください。",
+    "importHistory": "取り込み履歴（{{count}}）",
+    "importRecoveryHint": "更新やサービス再起動後も処理中の場合は、抽出を再実行できます。",
+    "openImportedResume": "取り込んだ版を表示",
+    "retryImport": "抽出を再実行",
+    "importSource": "ファイルの出典",
+    "originalFile": "元のファイル",
+    "downloadOriginal": "元のファイルをダウンロード",
+    "importReviewHint": "元のファイルと抽出文を保持します。確定前にレイアウト、欠落、整理項目を確認してください。",
+    "importSourceError": "元のファイルまたは抽出文を読み込めません。再試行するかファイルを確認してください。",
+    "extractedOriginal": "抽出文と位置",
+    "sourceLine": "{{number}} 行目",
+    "reviewedFields": "整理項目を確認",
+    "reviewedFieldsHint": "明確な見出しで分類し、不明な項目は空欄にします。原文と照合してください。追加内容は本人の入力です。",
+    "fileSource": "{{format}} ファイル",
+    "importFinished": "取り込みが終了しました。下書きまたはエラーを確認してください。",
+    "importStatus": {
+      "processing": "処理中",
+      "ready": "抽出済み",
+      "failed": "失敗"
+    },
+    "importErrors": {
+      "invalid_document": "解析できません。形式や破損を確認し、再出力してアップロードしてください。",
+      "encrypted": "PDF が暗号化されています。暗号化されていない版をアップロードしてください。",
+      "empty_document": "有効な文字がありません。スキャン文書はテキスト PDF、DOCX、または文字の貼り付けを使用してください。",
+      "text_limit": "文字数が 200,000 を超えています。文書を短くして再アップロードしてください。",
+      "safety_limit": "ページ数または内部内容が抽出制限を超えています。短くして再アップロードしてください。",
+      "file_unavailable": "元のファイルを利用できません。再アップロードしてください。既存の版は保持されます。"
+    },
+    "resumeFields": {
+      "education": "学歴",
+      "projects": "プロジェクト",
+      "skills": "スキル",
+      "summary": "自己紹介・自己評価",
+      "experience": "職歴・インターン経験"
+    },
+    "saveBeforeImport": "取り込む前に、現在の履歴書の変更を保存してください。",
+    "pdfSourceLocation": "{{page}} ページ、{{line}} 行目",
+    "docxSourceLocation": "第 {{paragraph}} 段落",
+    "resumeDraftHint": "下書きを保存し、本文と整理項目を確認してから使用を確定してください。"
   }
 }

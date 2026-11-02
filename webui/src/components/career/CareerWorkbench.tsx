@@ -9,6 +9,7 @@ import {
   confirmCareerJob, confirmCareerResume, createCareerThread, fetchCareerState,
   fetchCareerWorkspaces, renameCareerResume, saveCareerJob, saveCareerResume,
   cancelCareerPlan, confirmCareerPlan, updateCareerTask,
+  importCareerResume, retryCareerResumeImport,
 } from "@/lib/career-api";
 import type { CareerSelection, CareerState, CareerWorkspace } from "@/lib/career-types";
 import { CAREER_SELECT_CLASS } from "./CareerTarget";
@@ -108,7 +109,7 @@ function CareerScope({ reference, threadId, page, setPage, onSelect, epoch, onBa
   onSelect: (threadId: string) => void; epoch: number; onBackToChat: () => void;
 }) {
   const { t } = useTranslation();
-  const { client, getToken } = useClient();
+  const { client, getToken, webuiCapabilities } = useClient();
   const [resource, setResource] = useState<{ owner: typeof client; value: CareerState } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -178,7 +179,7 @@ function CareerScope({ reference, threadId, page, setPage, onSelect, epoch, onBa
       {page !== "workbench" ? <div className="space-y-3 pb-2">
         <p className="text-xs font-medium text-orange-800 dark:text-orange-200">{t("career.startEyebrow")}</p>
         <h2 className="text-2xl font-semibold tracking-tight">{t(`career.${page}`)}</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">{t(page === "resumes" ? "career.fileImportLater" : page === "jobs" ? "career.imageImportLater" : "career.tasksHint")}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{t(page === "resumes" ? (webuiCapabilities.includes("webui.career.resume-import.v1") ? "career.resumeImportIntro" : "career.fileImportLater") : page === "jobs" ? "career.imageImportLater" : "career.tasksHint")}</p>
       </div> : null}
       <ThreadVisibilityContext.Provider value={page === "workbench"}><div hidden={page !== "workbench"}><CareerHome key={`${threadId}:${preparationDraft}`} data={data} thread={current} busy={busy}
         onNavigate={setPage} onBackToChat={onBackToChat}
@@ -192,6 +193,9 @@ function CareerScope({ reference, threadId, page, setPage, onSelect, epoch, onBa
           if (thread) onSelect(thread.id);
         }} /></div></ThreadVisibilityContext.Provider>
       <div hidden={page !== "resumes"}><ResumeLibrary records={data.resumes} busy={busy}
+        workspaceRef={reference} imports={data.imports ?? []} importSupported={webuiCapabilities.includes("webui.career.resume-import.v1")}
+        onImport={(file, requestId) => perform(() => importCareerResume(client, reference, file, requestId), "importFinished")}
+        onRetryImport={(id) => perform(() => retryCareerResumeImport(client, reference, id), "importFinished")}
         activeVersionId={current?.resume_version_id}
         onSave={(action, input) => perform(() => saveCareerResume(client, reference, action, input))}
         onConfirm={(id) => perform(() => confirmCareerResume(client, reference, id))}

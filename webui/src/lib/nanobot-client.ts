@@ -722,6 +722,15 @@ export class NanobotClient {
     }
   }
 
+  async stageAttachments(media: OutboundMedia[]): Promise<AttachmentReference[]> {
+    const socket = this.socket;
+    const capability = this.upload;
+    const stillConnected = () => this.socket === socket
+      && socket?.readyState === WS_OPEN && this.upload === capability;
+    return uploadAttachments(media, capability,
+      typeof window !== "undefined" ? window.location.href : this.currentUrl, stillConnected);
+  }
+
   async sendAttachments(
     chatId: string, content: string, media: OutboundMedia[],
     options?: Parameters<NanobotClient["sendMessage"]>[3],
@@ -736,9 +745,7 @@ export class NanobotClient {
       role: options?.startsNewRun === false ? "supplement" : "candidate-owner",
     }));
     try {
-      const references = await uploadAttachments(media, capability,
-        typeof window !== "undefined" ? window.location.href : this.currentUrl,
-        stillConnected);
+      const references = await this.stageAttachments(media);
       if (!stillConnected()) throw new Error("Connection changed during attachment send");
       await this.receipts.wait(turnId, () => {
         if (!this.sendMessage(chatId, content, references, { ...options, turnId })) {

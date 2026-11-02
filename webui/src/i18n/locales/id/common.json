@@ -2907,6 +2907,52 @@
     "planSaved": "Disimpan ke daftar persiapan",
     "draftCancelled": "Draf dibatalkan",
     "planConflict": "Rencana atau tugas telah berubah. Muat ulang dan periksa daftar persiapan.",
-    "plansUnsupported": "Host ini belum mendukung penyimpanan rencana. Anda tetap dapat mengobrol."
+    "plansUnsupported": "Host ini belum mendukung penyimpanan rencana. Anda tetap dapat mengobrol.",
+    "resumeImport": "Impor CV",
+    "resumeImportHint": "PDF berbasis teks atau DOCX, hingga 6 MiB. Teks diekstrak secara lokal; gambar tidak dikenali.",
+    "resumeImportIntro": "Unggah CV, tinjau, lalu konfirmasi versinya.",
+    "selectResumeFile": "Pilih berkas CV",
+    "importWorking": "Mengimpor…",
+    "importFile": "Impor berkas",
+    "importFileInvalid": "Pilih PDF atau DOCX yang tidak kosong, hingga 6 MiB.",
+    "importHistory": "Riwayat impor ({{count}})",
+    "importRecoveryHint": "Jika masih diproses setelah penyegaran atau layanan dimulai ulang, coba ekstraksi lagi.",
+    "openImportedResume": "Lihat versi impor",
+    "retryImport": "Ulangi ekstraksi",
+    "importSource": "Sumber berkas",
+    "originalFile": "Berkas asli",
+    "downloadOriginal": "Unduh berkas asli",
+    "importReviewHint": "Berkas asli dan teks hasil ekstraksi disimpan. Periksa tata letak, bagian yang hilang dan isian sebelum konfirmasi.",
+    "importSourceError": "Berkas asli atau teks tidak dapat dibaca. Coba lagi atau periksa berkas.",
+    "extractedOriginal": "Teks ekstraksi dan lokasi",
+    "sourceLine": "Baris {{number}}",
+    "reviewedFields": "Tinjau isian ekstraksi",
+    "reviewedFieldsHint": "Dikelompokkan berdasarkan judul bagian yang jelas; bagian yang tidak ditemukan dibiarkan kosong. Cocokkan dengan aslinya. Tambahan merupakan isian Anda.",
+    "fileSource": "Berkas {{format}}",
+    "importFinished": "Impor selesai. Periksa draf atau kesalahannya.",
+    "importStatus": {
+      "processing": "Diproses",
+      "ready": "Teks diekstrak",
+      "failed": "Gagal"
+    },
+    "importErrors": {
+      "invalid_document": "Berkas tidak dapat diurai. Periksa format dan kerusakan, lalu ekspor dan unggah ulang.",
+      "encrypted": "PDF dienkripsi. Unggah salinan tanpa enkripsi.",
+      "empty_document": "Tidak ada teks yang dapat digunakan. Untuk pindaian, gunakan PDF teks, DOCX, atau tempel teks.",
+      "text_limit": "Teks melebihi 200.000 karakter. Ringkas dokumen lalu unggah ulang.",
+      "safety_limit": "Jumlah halaman atau isi internal melebihi batas ekstraksi. Ringkas lalu unggah ulang.",
+      "file_unavailable": "Berkas asli tidak tersedia. Unggah ulang; versi CV yang ada tetap disimpan."
+    },
+    "resumeFields": {
+      "education": "Pendidikan",
+      "projects": "Proyek",
+      "skills": "Keterampilan",
+      "summary": "Ringkasan",
+      "experience": "Pengalaman kerja / magang"
+    },
+    "saveBeforeImport": "Simpan perubahan CV saat ini sebelum mengimpor berkas.",
+    "pdfSourceLocation": "Halaman {{page}}, baris {{line}}",
+    "docxSourceLocation": "Paragraf {{paragraph}}",
+    "resumeDraftHint": "Simpan draf, lalu tinjau teks dan isian sebelum mengonfirmasi penggunaannya."
   }
 }

@@ -2550,6 +2550,20 @@ describe("NanobotClient", () => {
 
 
 describe("binary attachment transport", () => {
+  it("stages a document for a business action without starting a chat turn", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ reference: "career-file-reference" }, { status: 201 })));
+    const client = new NanobotClient({ url: "ws://test", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    try {
+      client.connect();
+      const socket = lastSocket(); socket.fakeOpen();
+      socket.fakeMessage({ event: "ready", chat_id: "chat", client_id: "test", upload: { path: "/api/attachments", token: "engineering-capability" } });
+      const references = await client.stageAttachments([{ data_url: "data:application/pdf;base64,eA==", name: "resume.pdf" }]);
+      expect(references).toEqual([{ reference: "career-file-reference", name: "resume.pdf" }]);
+      expect(socket.sent.some((value) => JSON.parse(value).type === "message")).toBe(false);
+      expect(client.getRunState("chat").active).toBe(false);
+    } finally { client.close(); vi.unstubAllGlobals(); }
+  });
   it("keeps a progressing HTTP upload alive beyond the old 65-second limit", async () => {
     const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
       const controller = new AbortController();

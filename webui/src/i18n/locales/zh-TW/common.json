@@ -2907,6 +2907,52 @@
     "planSaved": "已存入準備清單",
     "draftCancelled": "草稿已取消",
     "planConflict": "計畫或任務狀態已變更，請重新整理後核對清單。",
-    "plansUnsupported": "目前主機不支援計畫儲存，可繼續對話。"
+    "plansUnsupported": "目前主機不支援計畫儲存，可繼續對話。",
+    "resumeImport": "匯入履歷檔案",
+    "resumeImportHint": "支援文字型 PDF、DOCX，單檔不超過 6 MiB。在本機擷取文字，不辨識圖片。",
+    "resumeImportIntro": "上傳履歷，核對後確認版本。",
+    "selectResumeFile": "選擇履歷檔案",
+    "importWorking": "正在匯入…",
+    "importFile": "匯入檔案",
+    "importFileInvalid": "請選擇非空的 PDF 或 DOCX，單檔不超過 6 MiB。",
+    "importHistory": "匯入紀錄（{{count}}）",
+    "importRecoveryHint": "若重新整理或服務重新啟動後仍顯示處理中，可重新解析。",
+    "openImportedResume": "查看匯入版本",
+    "retryImport": "重新解析",
+    "importSource": "檔案來源",
+    "originalFile": "原始檔案",
+    "downloadOriginal": "下載原始檔案",
+    "importReviewHint": "會保留原始檔案與擷取原文。確認前請核對排版、缺漏與整理欄位。",
+    "importSourceError": "無法讀取原始檔案或擷取原文，請重試或確認檔案是否可用。",
+    "extractedOriginal": "擷取原文與出處",
+    "sourceLine": "第 {{number}} 行",
+    "reviewedFields": "核對整理內容",
+    "reviewedFieldsHint": "依明確的章節標題整理，未擷取的內容留白。請對照原文核對，新增內容視為你的填寫。",
+    "fileSource": "{{format}} 檔案",
+    "importFinished": "匯入處理已結束，請檢查草稿或失敗原因。",
+    "importStatus": {
+      "processing": "處理中",
+      "ready": "已擷取",
+      "failed": "失敗"
+    },
+    "importErrors": {
+      "invalid_document": "無法解析檔案，請檢查是否損毀或格式不符，重新匯出後上傳。",
+      "encrypted": "PDF 已加密，請匯出未加密版本後上傳。",
+      "empty_document": "未讀到有效文字。掃描檔請改用文字型 PDF、DOCX 或貼上文字。",
+      "text_limit": "擷取文字超過 200,000 字元，請精簡後重新上傳。",
+      "safety_limit": "頁數或檔案內部內容超出解析限制，請精簡後重新上傳。",
+      "file_unavailable": "原始檔案不可用，請重新上傳；既有履歷版本會保留。"
+    },
+    "resumeFields": {
+      "education": "教育經歷",
+      "projects": "專案經歷",
+      "skills": "技能",
+      "summary": "個人簡介 / 評價",
+      "experience": "工作 / 實習經歷"
+    },
+    "saveBeforeImport": "匯入前，請先儲存目前履歷的修改。",
+    "pdfSourceLocation": "第 {{page}} 頁，第 {{line}} 行",
+    "docxSourceLocation": "第 {{paragraph}} 段",
+    "resumeDraftHint": "儲存草稿後，請核對正文及整理內容，再確認使用。"
   }
 }
