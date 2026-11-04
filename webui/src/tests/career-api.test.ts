@@ -1,7 +1,49 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { confirmCareerPlan, updateCareerTask, fetchCareerConversation, fetchCareerState, fetchCareerWorkspaces, saveCareerJob, importCareerResume, fetchCareerResumeImport, fetchCareerResumeOriginal, retryCareerResumeImport } from "@/lib/career-api";
+import { importCareerJobImage, fetchCareerJobImage, fetchCareerJobImageOriginal, saveCareerImageJob } from "@/lib/career-api";
 
 afterEach(() => vi.unstubAllGlobals());
+
+const jobImage = {
+  id: `jobimage_${"b".repeat(32)}`, filename: "job.png", file_type: "png", size: 5, status: "ready",
+  width: 320, height: 180, error_code: null, model: "engineering-model", provider: "engineering", job_version_id: null, manual: false,
+  created_at: "2026-11-02T08:00:00Z", updated_at: "2026-11-02T08:00:00Z",
+  reading: { readable: true, text: "Job A 4 days per week", warnings: [], fields: {
+    name: { value: "Job A", evidence: "Job A" }, company: null, locations: [], responsibilities: [], qualifications: [],
+    days_per_week: { value: 4, evidence: "4 days per week" }, available_months: null,
+  } },
+};
+
+it("uploads a job image as binary and keeps recognition separate from saving a reviewed job", async () => {
+  const client = { stageAttachments: vi.fn().mockResolvedValue([{ reference: "job-upload" }]), requestMutation: vi.fn().mockResolvedValue({ import: jobImage, job: null }) };
+  const value = await importCareerJobImage(client, "workspace", new File(["image"], "job.png"), "22222222-2222-4222-8222-222222222222");
+  expect(value.job).toBeNull();
+  expect(client.stageAttachments).toHaveBeenCalledWith([{ data_url: "data:image/png;base64,aW1hZ2U=", name: "job.png" }]);
+  expect(client.requestMutation).toHaveBeenCalledWith("career.job.image.import", expect.objectContaining({ workspace_ref: "workspace", attachment_ref: "job-upload", filename: "job.png", size: 5 }), 120_000);
+  const saved = { id: "job-version", job_id: "job", version: 1, name: "Job reviewed", company: null, text: "Reviewed text", requirements: { days_per_week: 3 }, source: "image", import_id: jobImage.id, status: "draft", created_at: jobImage.created_at };
+  client.requestMutation.mockResolvedValue(saved);
+  expect((await saveCareerImageJob(client, "workspace", jobImage.id, false, { name: saved.name, company: null, text: saved.text, requirements: saved.requirements })).status).toBe("draft");
+  expect(client.requestMutation).toHaveBeenLastCalledWith("career.job.image.save", expect.objectContaining({ id: jobImage.id, manual: false, requirements: { days_per_week: 3 } }), expect.any(Number));
+});
+
+it("validates screenshot identity and structured values before showing an image-derived draft", async () => {
+  const read = (value: unknown) => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(value)));
+  read(jobImage);
+  expect((await fetchCareerJobImage("token", "workspace", jobImage.id)).reading?.fields.days_per_week?.value).toBe(4);
+  read({ ...jobImage, id: `jobimage_${"c".repeat(32)}` });
+  await expect(fetchCareerJobImage("token", "workspace", jobImage.id)).rejects.toThrow("career_invalid_response");
+  read({ ...jobImage, reading: { ...jobImage.reading, fields: { ...jobImage.reading.fields, days_per_week: { value: "four", evidence: "4 days" } } } });
+  await expect(fetchCareerJobImage("token", "workspace", jobImage.id)).rejects.toThrow("career_invalid_response");
+});
+
+it("downloads a screenshot using the existing scoped authentication instead of a credential-bearing image URL", async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response("image bytes", { headers: { "content-type": "application/octet-stream" } }));
+  vi.stubGlobal("fetch", fetch);
+  expect(await (await fetchCareerJobImageOriginal("engineering-token", "workspace", jobImage.id)).text()).toBe("image bytes");
+  expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/api/career/job-image-file?workspace_ref=workspace"), expect.objectContaining({
+    headers: { Authorization: "Bearer engineering-token" }, credentials: "same-origin", cache: "no-store", redirect: "error",
+  }));
+});
 
 const importedFile = {
   id: `import_${"a".repeat(32)}`, filename: "resume.pdf", file_type: "pdf", size: 4, name: "resume",

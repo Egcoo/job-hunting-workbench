@@ -73,6 +73,34 @@ writer.write(folder/'resume.pdf')
     marker: provided ? "低打扰颈肩健康管理" : "CV_FILE_6",
   };
 }
+
+function jobScreenshotSamples() {
+  const python = process.env.NANOBOT_TEST_PYTHON ?? path.join(repo, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+  const provided = process.env.NANOBOT_CAREER_LIVE_MODEL === "1" ? process.env.NANOBOT_CAREER_JOB_SAMPLES ?? "" : "";
+  const generated = spawnSync(python, ["-X", "utf8", "-c", `
+import sys
+from pathlib import Path
+from PIL import Image,ImageDraw,ImageFont
+folder=Path(sys.argv[1])/'job-samples'
+folder.mkdir()
+for case,color in [('A',(255,230,230)),('B',(230,230,255))]:
+    image=Image.new('RGB',(760,400),color)
+    text='ENGINEERING_JOB_'+case+('...' if case=='B' else '')
+    ImageDraw.Draw(image).text((20,35),text+'\\nShanghai\\n'+('5 days/week, 3 months' if case=='B' else '4 days/week, 6 months')+'\\nPrototype design and user research',fill='black',font=ImageFont.load_default(size=28))
+    image.save(folder/('job-'+case+'.png'))
+source=Path(sys.argv[2])/'模拟岗位1.png' if sys.argv[2] else folder/'job-A.png'
+with Image.open(source) as image:
+    image.convert('RGB').save(folder/'job-A.jpg',quality=95)
+    image.convert('RGB').save(folder/'job-A.webp',quality=95)
+(folder/'broken.png').write_bytes(b'engineering broken image')
+`, root, provided], { cwd: repo, windowsHide: true, encoding: "utf8" });
+  if (generated.status !== 0) throw new Error(`Could not create job screenshot fixtures: ${generated.stderr}`);
+  const folder = path.join(root, "job-samples");
+  return { provided: !!provided, first: [
+    { kind: "PNG", file: provided ? path.join(provided, "模拟岗位1.png") : path.join(folder, "job-A.png") },
+    { kind: "JPG", file: path.join(folder, "job-A.jpg") }, { kind: "WEBP", file: path.join(folder, "job-A.webp") },
+  ], second: provided ? path.join(provided, "模拟岗位2.png") : path.join(folder, "job-B.png"), broken: path.join(folder, "broken.png") };
+}
 function nav(page: Page, name: string) { return page.getByRole("navigation", { name: "求职页面" }).getByRole("button", { name, exact: true }); }
 
 test.beforeEach(async () => {
@@ -212,6 +240,113 @@ test("career resume files become reviewed versions and retain originals across r
   const restored = await (await afterRestart).path();
   if (!restored) throw new Error("Original file download after restart did not finish");
   expect(readFileSync(restored)).toEqual(readFileSync(samples.pdf));
+});
+
+test("career job screenshots require review and preserve corrected requirements and originals", async ({ page }, info) => {
+  test.setTimeout(process.env.NANOBOT_CAREER_LIVE_MODEL === "1" ? 360_000 : 150_000);
+  const samples = jobScreenshotSamples();
+  await page.addInitScript(() => { localStorage.setItem("nanobot.locale", "zh-CN"); localStorage.setItem("nanobot-webui.theme", "dark"); });
+  await page.goto(`${base}/#/career`);
+  await nav(page, "岗位库").click();
+  const importer = page.getByRole("region", { name: "导入岗位截图" });
+  const editor = page.getByRole("form", { name: "岗位编辑" });
+  const versions = page.getByRole("list", { name: "岗位版本" });
+  for (const [index, entry] of samples.first.entries()) {
+    await importer.getByLabel("选择岗位截图").setInputFiles(entry.file);
+    await importer.getByRole("button", { name: "上传并识别", exact: true }).click();
+    await expect(editor.getByLabel("岗位名称", { exact: true })).toHaveValue(samples.provided ? /AI\s*数据运营实习生/ : /ENGINEERING_JOB_A/, { timeout: 90_000 });
+    await expect(editor.getByLabel("岗位每周到岗天数（选填）")).toHaveValue("4");
+    await expect(editor.getByLabel("岗位实习月数（选填）")).toHaveValue("6");
+    await expect(editor.getByRole("button", { name: "确认使用", exact: true })).toHaveCount(0);
+    await editor.getByText("原图与识别原文", { exact: true }).click();
+    const source = editor.getByRole("region", { name: "岗位截图来源" });
+    await expect(source.getByRole("img", { name: /岗位原图/ })).toBeVisible();
+    await expect.poll(() => source.getByRole("img", { name: /岗位原图/ }).evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    if (index === 0) {
+      await source.getByRole("button", { name: "放大岗位原图", exact: true }).click();
+      await expect(page.getByRole("dialog")).toBeVisible(); await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    }
+    const downloading = page.waitForEvent("download");
+    await source.getByRole("button", { name: "下载原文件", exact: true }).click();
+    const downloaded = await (await downloading).path();
+    if (!downloaded) throw new Error("Job original download did not finish");
+    expect(readFileSync(downloaded)).toEqual(readFileSync(entry.file));
+    await editor.getByLabel("岗位名称", { exact: true }).fill(`${entry.kind}联调岗位`);
+    if (index === 0) await editor.getByLabel("岗位每周到岗天数（选填）").fill("3");
+    await editor.getByRole("button", { name: "保存草稿", exact: true }).click();
+    await expect(editor.getByRole("button", { name: "确认使用", exact: true })).toBeEnabled();
+    await expect(versions.getByRole("button")).toHaveCount(index + 1);
+    await editor.getByRole("button", { name: "确认使用", exact: true }).click();
+    await expect(editor.getByLabel("岗位原文", { exact: true })).toHaveAttribute("readonly");
+    await expect(versions.getByRole("button", { name: new RegExp(entry.kind + "联调岗位") })).toContainText("岗位截图");
+  }
+  await importer.getByLabel("选择岗位截图").setInputFiles(samples.second);
+  await importer.getByRole("button", { name: "上传并识别", exact: true }).click();
+  await expect(editor.getByLabel("岗位名称", { exact: true })).toHaveValue(samples.provided ? /Business\s*Intern/ : /ENGINEERING_JOB_B/, { timeout: 90_000 });
+  await expect(editor.getByLabel("岗位每周到岗天数（选填）")).toHaveValue("5");
+  await expect(editor.getByLabel("岗位实习月数（选填）")).toHaveValue("3");
+  const source = editor.getByRole("region", { name: "岗位截图来源" });
+  await expect(source.getByRole("note")).toBeVisible();
+  await editor.getByText("原图与识别原文", { exact: true }).click();
+  await expect(source.getByRole("img", { name: /岗位原图/ })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await editor.getByRole("heading").click();
+  await page.screenshot({ path: info.outputPath("career-job-image-review.png"), fullPage: true });
+  await editor.getByLabel("岗位名称", { exact: true }).fill("岗位B联调");
+  await editor.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await editor.getByRole("button", { name: "确认使用", exact: true }).click();
+  await importer.getByLabel("选择岗位截图").setInputFiles(samples.broken);
+  await importer.getByRole("button", { name: "上传并识别", exact: true }).click();
+  await expect(importer.getByText(/图片格式不符或已损坏/)).toBeVisible();
+  await importer.getByRole("button", { name: "手动填写", exact: true }).click();
+  await expect(editor.getByLabel("岗位名称", { exact: true })).toHaveValue("");
+  await editor.getByLabel("岗位名称", { exact: true }).fill("人工录入联调");
+  await editor.getByLabel("岗位原文", { exact: true }).fill("工程演示：用户对照原图人工填写，参与原型设计。");
+  await editor.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(editor.getByRole("button", { name: "确认使用", exact: true })).toBeEnabled();
+  await expect(importer).toContainText("已手动保存");
+  await expect(versions.getByRole("button")).toHaveCount(5);
+  await page.setViewportSize({ width: 360, height: 850 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("career-job-image-narrow.png"), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await nav(page, "我的简历").click();
+  const resume = page.getByRole("form", { name: "简历编辑" });
+  await resume.getByLabel("名称", { exact: true }).fill("截图联调简历");
+  await resume.getByLabel("简历正文", { exact: true }).fill("工程虚构项目 CV_A7；每周到岗2天，连续3个月。");
+  await resume.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await resume.getByRole("button", { name: "确认使用", exact: true }).click();
+  await nav(page, "工作台").click();
+  const target = page.getByRole("form", { name: "选择准备资料" });
+  await target.getByLabel("简历版本").selectOption({ label: "截图联调简历 · v1" });
+  const jobOption = target.getByLabel("岗位版本").getByRole("option", { name: /^PNG联调岗位 · v1/ });
+  const selectedJobId = await jobOption.getAttribute("value");
+  if (!selectedJobId) throw new Error("Missing confirmed screenshot job option");
+  await target.getByLabel("岗位版本").selectOption(selectedJobId);
+  await target.getByText("到岗条件（选填）", { exact: true }).click();
+  await target.getByLabel("每周到岗天数（选填）").fill("2");
+  await target.getByRole("button", { name: "进入准备记录" }).click();
+  const conversation = page.getByRole("region", { name: "求职对话", exact: true });
+  await conversation.getByRole("textbox", { name: "向求职助手提问" }).fill("只根据当前确认后的岗位结构化要求回答：每周至少几天？只回答天数，不要恢复识别原文中的旧值。");
+  await conversation.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(conversation.getByTestId("career-turn-source")).toHaveAttribute("data-analysis-status", "succeeded", { timeout: 90_000 });
+  const answer = conversation.locator('[data-assistant-selectable="true"]').last();
+  await expect(answer).toContainText("3"); await expect(answer).not.toContainText("4");
+  const preparation = page.url();
+  await stop(); await start(); await page.reload();
+  await expect(page).toHaveURL(preparation);
+  await nav(page, "岗位库").click();
+  await versions.getByRole("button", { name: /PNG联调岗位/ }).click();
+  await expect(editor.getByLabel("岗位每周到岗天数（选填）")).toHaveValue("3");
+  await expect(editor.getByLabel("岗位原文", { exact: true })).toHaveAttribute("readonly");
+  await editor.getByText("原图与识别原文", { exact: true }).click();
+  await expect(editor.getByRole("img", { name: /岗位原图/ })).toBeVisible();
+  const downloading = page.waitForEvent("download");
+  await editor.getByRole("button", { name: "下载原文件", exact: true }).click();
+  const restored = await (await downloading).path();
+  if (!restored) throw new Error("Restored original job image download did not finish");
+  expect(readFileSync(restored)).toEqual(readFileSync(samples.first[0].file));
 });
 
 test("career conversation sends the selected materials and preserves sources across replies and reload", async ({ page }, info) => {

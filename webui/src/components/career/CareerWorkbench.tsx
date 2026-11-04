@@ -10,6 +10,7 @@ import {
   fetchCareerWorkspaces, renameCareerResume, saveCareerJob, saveCareerResume,
   cancelCareerPlan, confirmCareerPlan, updateCareerTask,
   importCareerResume, retryCareerResumeImport,
+  importCareerJobImage, retryCareerJobImage, fetchCareerJobImage, saveCareerImageJob,
 } from "@/lib/career-api";
 import type { CareerSelection, CareerState, CareerWorkspace } from "@/lib/career-types";
 import { CAREER_SELECT_CLASS } from "./CareerTarget";
@@ -179,7 +180,7 @@ function CareerScope({ reference, threadId, page, setPage, onSelect, epoch, onBa
       {page !== "workbench" ? <div className="space-y-3 pb-2">
         <p className="text-xs font-medium text-orange-800 dark:text-orange-200">{t("career.startEyebrow")}</p>
         <h2 className="text-2xl font-semibold tracking-tight">{t(`career.${page}`)}</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">{t(page === "resumes" ? (webuiCapabilities.includes("webui.career.resume-import.v1") ? "career.resumeImportIntro" : "career.fileImportLater") : page === "jobs" ? "career.imageImportLater" : "career.tasksHint")}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{t(page === "resumes" ? (webuiCapabilities.includes("webui.career.resume-import.v1") ? "career.resumeImportIntro" : "career.fileImportLater") : page === "jobs" ? (webuiCapabilities.includes("webui.career.job-image.v1") ? "career.jobImageIntro" : "career.imageImportLater") : "career.tasksHint")}</p>
       </div> : null}
       <ThreadVisibilityContext.Provider value={page === "workbench"}><div hidden={page !== "workbench"}><CareerHome key={`${threadId}:${preparationDraft}`} data={data} thread={current} busy={busy}
         onNavigate={setPage} onBackToChat={onBackToChat}
@@ -201,6 +202,12 @@ function CareerScope({ reference, threadId, page, setPage, onSelect, epoch, onBa
         onConfirm={(id) => perform(() => confirmCareerResume(client, reference, id))}
         onRename={(id, name, notes) => perform(() => renameCareerResume(client, reference, id, name, notes))} /></div>
       <div hidden={page !== "jobs"}><JobLibrary records={data.jobs} busy={busy}
+        workspaceRef={reference} images={data.job_images ?? []} imageSupported={webuiCapabilities.includes("webui.career.job-image.v1")}
+        recognitionAvailable={data.job_image_recognition_available === true}
+        onImportImage={(file, requestId) => perform(() => importCareerJobImage(client, reference, file, requestId), "jobImageFinished")}
+        onRetryImage={(id) => perform(() => retryCareerJobImage(client, reference, id), "jobImageFinished")}
+        onReadImage={(id) => perform(() => fetchCareerJobImage(getToken(), reference, id), "jobImageLoaded")}
+        onSaveImage={(id, manual, input) => perform(() => saveCareerImageJob(client, reference, id, manual, input))}
         activeVersionId={current?.job_version_id}
         onSave={(action, input) => perform(() => saveCareerJob(client, reference, action, input))}
         onConfirm={(id) => perform(() => confirmCareerJob(client, reference, id))} /></div>

@@ -15,6 +15,7 @@ function MaterialFields({ value }: { value: unknown }) {
     const labels: Record<string, string> = {
       name: t("career.name"), education: t("career.education"), skills: t("career.skills"),
       project: t("career.projects"), projects: t("career.projects"), interview_experience: t("career.interviewExperience"),
+      responsibilities: t("career.jobResponsibilities"), qualifications: t("career.jobQualifications"),
       days_per_week: t("career.availabilityDays"), available_months: t("career.availabilityMonths"),
       available_from: t("career.availabilityDate"), locations: t("career.availabilityLocations"),
     };

@@ -62,7 +62,7 @@ export function CareerHome({ data, thread, busy, onNavigate, onCreate, onBackToC
       <section className="min-w-0 space-y-3 rounded-2xl border bg-muted/20 p-5">
         <BriefcaseBusiness className="h-5 w-5 text-orange-800 dark:text-orange-200" aria-hidden="true" />
         <h3 className="font-medium">{t("career.jobIntro")}</h3>
-        <p className="text-sm leading-relaxed text-muted-foreground">{t("career.jobIntroHint")}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{t(webuiCapabilities.includes("webui.career.job-image.v1") ? "career.jobImageIntro" : "career.jobIntroHint")}</p>
         <Button variant="link" className="h-auto max-w-full gap-2 whitespace-normal p-0 text-orange-800 dark:text-orange-200" onClick={() => onNavigate("jobs")}>
           {t(data.jobs.length ? "career.jobs" : "career.addJob")}<ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </Button>

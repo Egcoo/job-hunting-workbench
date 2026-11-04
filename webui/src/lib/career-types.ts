@@ -7,11 +7,10 @@ interface Version {
   name: string;
   text: string;
   status: "draft" | "confirmed";
-  source: "text" | "pdf" | "docx";
   created_at: string;
 }
-export interface ResumeVersion extends Version { notes: string; profile: Record<string, unknown>; import_id?: string | null }
-export interface JobVersion extends Version { job_id: string; company: string | null; requirements: Record<string, unknown> }
+export interface ResumeVersion extends Version { source: "text" | "pdf" | "docx"; notes: string; profile: Record<string, unknown>; import_id?: string | null }
+export interface JobVersion extends Version { source: "text" | "image"; job_id: string; company: string | null; requirements: Record<string, unknown>; import_id?: string | null }
 export interface PersonalConditions {
   days_per_week: number | null;
   available_months: number | null;
@@ -53,6 +52,8 @@ export interface CareerState {
   workspace_id: string;
   resumes: ResumeVersion[];
   imports?: ResumeImportSummary[];
+  job_images?: JobImageSummary[];
+  job_image_recognition_available?: boolean;
   jobs: JobVersion[];
   threads: CareerThread[];
   deleted_thread_ids?: string[];
@@ -99,3 +100,21 @@ export interface ResumeImportDetail extends ResumeImportSummary {
   sections: Array<{ key: ResumeSectionKey; line_numbers: number[] }>;
 }
 export interface ResumeImportResult { import: ResumeImportSummary; resume: ResumeVersion | null }
+
+export interface CitedJobText { value: string; evidence: string }
+export interface CitedJobCount { value: number; evidence: string }
+export interface JobImageFields {
+  name: CitedJobText | null; company: CitedJobText | null;
+  locations: CitedJobText[]; responsibilities: CitedJobText[]; qualifications: CitedJobText[];
+  days_per_week: CitedJobCount | null; available_months: CitedJobCount | null;
+}
+export interface JobImageReading { readable: boolean; text: string; fields: JobImageFields; warnings: string[] }
+export type JobImageError = "invalid_image" | "image_limit" | "file_unavailable" | "vision_unavailable" | "vision_unverified" | "unreadable" | "invalid_result" | "recognition_failed" | "timeout" | "interrupted";
+export interface JobImageSummary {
+  id: string; filename: string; file_type: "png" | "jpg" | "webp"; size: number;
+  status: "processing" | "ready" | "failed"; width: number | null; height: number | null;
+  error_code: JobImageError | null; model: string | null; provider: string | null;
+  job_version_id: string | null; manual: boolean; created_at: string; updated_at: string;
+}
+export interface JobImageDetail extends JobImageSummary { reading: JobImageReading | null }
+export interface JobImageResult { import: JobImageDetail; job: JobVersion | null }
