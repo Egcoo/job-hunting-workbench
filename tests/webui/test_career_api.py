@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from PIL import Image
 from websockets.datastructures import Headers
 from websockets.http11 import Request, Response
 
@@ -24,19 +25,23 @@ from nanobot.bus.outbound_events import (
     outbound_message_for_event,
 )
 from nanobot.bus.queue import MessageBus
+from nanobot.career.context import build_materials
 from nanobot.career.models import TaskInput
 from nanobot.career.store import CareerStore
 from nanobot.channels.manager import ChannelManager
+from nanobot.channels.websocket.attachment_store import AttachmentUploadError
 from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanobot.security.workspace_access import WORKSPACE_SCOPE_METADATA_KEY
 from nanobot.session.manager import SessionManager
 from nanobot.session.webui_turns import WebuiTurnCoordinator
+from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.webui.career_policy import career_discussion_policy
 from nanobot.webui.career_tools import ProposePreparationPlanTool
 from nanobot.webui.career_turns import CAREER_TURN_METADATA
 from nanobot.webui.gateway_services import build_gateway_services
+from nanobot.webui.job_image_recognition import JobImageRecognizer, image_challenge
 from nanobot.webui.workspaces import write_webui_workspace_state
 from scripts.career_browser_gateway import EngineeringProvider
 
@@ -114,6 +119,131 @@ async def _staged_resume(services, connection, content: bytes, *, filename="resu
         yield content
 
     return await services.uploads.store.upload(chunks(), owner=services.uploads.owner(connection), mime=mime, size=len(content), filename=filename)
+
+
+def _job_picture(kind="png") -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (320, 180), (255, 230, 230)).save(output, format={"png": "PNG", "jpg": "JPEG", "webp": "WEBP"}[kind])
+    return output.getvalue()
+
+
+def _vision_reader(gateway, monkeypatch, provider=None):
+    provider = provider or EngineeringProvider()
+    runtime = LLMRuntime.capture(provider, "engineering-job-image", context_window_tokens=32_000)
+    gateway[0].http.career.job_image_recognizer = JobImageRecognizer(lambda: runtime)
+    monkeypatch.setattr("nanobot.webui.job_image_recognition._challenge", lambda: image_challenge("246810"))
+    return provider
+
+
+@pytest.mark.parametrize("kind", ["png", "jpg", "webp"])
+async def test_job_screenshot_requires_owned_upload_and_explicit_save_and_uses_confirmed_corrections(gateway, monkeypatch, kind):
+    _vision_reader(gateway, monkeypatch)
+    services, token, _ = gateway
+    connection = _UploadConnection()
+    local = (services, token, connection)
+    reference = await _scope(gateway)
+    content = _job_picture(kind)
+    mime = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}[kind]
+    attachment = await _staged_resume(services, connection, content, filename=f"job.{kind}", mime=mime)
+    payload = dict(workspace_ref=reference, request_id=str(uuid4()), attachment_ref=attachment, filename=f"job.{kind}", size=len(content))
+    reply = await _mutate(local, "career.job.image.import", **payload)
+    assert reply.status_code == 200
+    result = _body(reply)
+    record = result["import"]
+    assert record["status"] == "ready" and result["job"] is None
+    assert record["reading"]["fields"]["days_per_week"]["value"] == 4
+    assert _body(await _get(gateway, f"/api/career?workspace_ref={reference}"))["jobs"] == []
+    duplicate = await _staged_resume(services, connection, content, filename=f"job.{kind}", mime=mime)
+    assert _body(await _mutate(local, "career.job.image.import", **{**payload, "attachment_ref": duplicate})) == result
+    with pytest.raises(AttachmentUploadError):
+        services.uploads.store.inspect([duplicate], owner=services.uploads.owner(connection))
+    services.uploads.revoke(connection)
+    assert _body(await _mutate(local, "career.job.image.import", **payload)) == result
+    path = f"/api/career/job-image-file?workspace_ref={reference}&id={record['id']}"
+    assert (await _get(gateway, path, authenticated=False)).status_code == 401
+    original = await _get(gateway, path)
+    assert original.status_code == 200 and bytes(original.body) == content
+    saved = _body(await _mutate(gateway, "career.job.image.save", workspace_ref=reference, id=record["id"],
+                                name="用户核对岗位", company=None, text=record["reading"]["text"], requirements={"days_per_week": 3}, manual=False))
+    assert saved["status"] == "draft" and saved["source"] == "image" and saved["import_id"] == record["id"]
+    resume = _body(await _mutate(gateway, "career.resume.create", workspace_ref=reference, name="工程简历", text="原型项目"))
+    await _mutate(gateway, "career.resume.confirm", workspace_ref=reference, id=resume["id"])
+    binding = dict(workspace_ref=reference, resume_version_id=resume["id"], job_version_id=saved["id"], conditions={"days_per_week": 2})
+    assert (await _mutate(gateway, "career.thread.create", **binding)).status_code == 409
+    await _mutate(gateway, "career.job.confirm", workspace_ref=reference, id=saved["id"])
+    thread = _body(await _mutate(gateway, "career.thread.create", **binding))
+    service, _ = services.http.career.bound_thread(reference, thread["id"])
+    materials = build_materials(service.create_analysis(thread["id"]).snapshot)
+    assert materials.payload["availability_conflicts"] == [{"field": "days_per_week", "available": 2, "required": 3}]
+    detail = _body(await _get(gateway, f"/api/career/job-image?workspace_ref={reference}&id={record['id']}"))
+    assert detail["reading"]["fields"]["days_per_week"]["value"] == 4
+
+
+async def test_unavailable_vision_keeps_original_and_allows_explicit_manual_entry_without_faking_recognition(gateway):
+    services, token, _ = gateway
+    connection = _UploadConnection()
+    local = (services, token, connection)
+    reference = await _scope(gateway)
+    content = _job_picture()
+    attachment = await _staged_resume(services, connection, content, filename="job.png", mime="image/png")
+    record = _body(await _mutate(local, "career.job.image.import", workspace_ref=reference,
+                                request_id=str(uuid4()), attachment_ref=attachment, filename="job.png", size=len(content)))["import"]
+    assert record["status"] == "failed" and record["error_code"] == "vision_unavailable" and record["reading"] is None
+    fields = dict(workspace_ref=reference, id=record["id"], name="人工岗位", text="对照原图人工填写", requirements={"days_per_week": 4})
+    assert (await _mutate(gateway, "career.job.image.save", **fields, manual=False)).status_code == 409
+    saved = _body(await _mutate(gateway, "career.job.image.save", **fields, manual=True))
+    retried = _body(await _mutate(gateway, "career.job.image.retry", workspace_ref=reference, id=record["id"]))
+    assert retried["import"]["manual"] and retried["import"]["status"] == "failed" and retried["job"] == saved
+    assert retried["import"]["reading"] is None
+
+
+async def test_job_image_rejects_foreign_connections_paths_and_wrong_workspace_reads(gateway, tmp_path):
+    services, token, _ = gateway
+    owner, stranger = _UploadConnection(), _UploadConnection()
+    reference = await _scope(gateway)
+    content = _job_picture()
+    attachment = await _staged_resume(services, owner, content, filename="job.png", mime="image/png")
+    services.uploads.issue(stranger)
+    payload = dict(workspace_ref=reference, request_id=str(uuid4()), attachment_ref=attachment, filename="job.png", size=len(content))
+    assert (await _mutate((services, token, stranger), "career.job.image.import", **payload)).status_code == 400
+    assert (await _mutate((services, token, owner), "career.job.image.import", **payload, path="C:/private/image.png")).status_code == 400
+    result = _body(await _mutate((services, token, owner), "career.job.image.import", **payload))
+    other = tmp_path / "other-image-workspace"
+    other.mkdir()
+    write_webui_workspace_state({"favorite_projects": [str(other)]})
+    foreign = next(item["ref"] for item in _body(await _get(gateway, "/api/career/workspaces"))["workspaces"] if item["ref"] != reference)
+    assert (await _get(gateway, f"/api/career/job-image-file?workspace_ref={foreign}&id={result['import']['id']}")).status_code == 404
+
+
+async def test_slow_image_call_keeps_career_reads_available_and_cancellation_is_persisted(gateway, monkeypatch):
+    class SlowVision(EngineeringProvider):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def chat(self, messages, **kwargs):
+            self.started.set()
+            await self.release.wait()
+            return await super().chat(messages, **kwargs)
+
+    provider = SlowVision()
+    _vision_reader(gateway, monkeypatch, provider)
+    services, token, _ = gateway
+    connection = _UploadConnection()
+    reference = await _scope(gateway)
+    content = _job_picture()
+    attachment = await _staged_resume(services, connection, content, filename="slow.png", mime="image/png")
+    running = asyncio.create_task(_mutate((services, token, connection), "career.job.image.import", workspace_ref=reference,
+                                         request_id=str(uuid4()), attachment_ref=attachment, filename="slow.png", size=len(content)))
+    await asyncio.wait_for(provider.started.wait(), 5)
+    state = _body(await asyncio.wait_for(_get(gateway, f"/api/career?workspace_ref={reference}"), 3))
+    assert state["job_images"][0]["status"] == "processing" and state["jobs"] == []
+    running.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await running
+    state = _body(await _get(gateway, f"/api/career?workspace_ref={reference}"))
+    assert state["job_images"][0]["error_code"] == "interrupted" and state["jobs"] == []
 
 
 async def test_import_uses_live_upload_owner_and_retains_original_after_staging_cleanup(gateway, tmp_path):

@@ -60,6 +60,7 @@ from nanobot.webui.build import BuildMode
 from nanobot.webui.career_policy import career_discussion_policy
 from nanobot.webui.career_tools import ProposePreparationPlanTool
 from nanobot.webui.dev import WebUIDevError, WebUIDevServer
+from nanobot.webui.job_image_recognition import JobImageRecognizer
 from nanobot.webui.sidebar_state import read_webui_sidebar_state
 
 if TYPE_CHECKING:
@@ -855,6 +856,7 @@ def _run_claimed_gateway(
 
         if isinstance(websocket_channel, WebSocketChannel):
             tools.register(ProposePreparationPlanTool(websocket_channel.gateway.http.career, bus))
+            websocket_channel.gateway.http.career.job_image_recognizer = JobImageRecognizer(agent.llm_runtime)
 
     async def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""

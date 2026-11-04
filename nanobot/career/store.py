@@ -16,6 +16,7 @@ from nanobot.career.models import (
     AnalysisRun,
     CareerNotFoundError,
     CareerThread,
+    JobImageImport,
     JobVersion,
     PreparationPlan,
     PreparationTask,
@@ -25,7 +26,17 @@ from nanobot.career.models import (
 from nanobot.config.paths import get_data_dir
 from nanobot.session.location import SessionLocation
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+
+_JOB_IMAGE_SCHEMA = """CREATE TABLE job_image_imports (
+    id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, filename TEXT NOT NULL,
+    file_type TEXT NOT NULL CHECK (file_type IN ('png', 'jpg', 'webp')),
+    size INTEGER NOT NULL, sha256 TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('processing', 'ready', 'failed')),
+    width INTEGER, height INTEGER, reading TEXT, error_code TEXT, model TEXT, provider TEXT,
+    job_version_id TEXT UNIQUE REFERENCES job_versions(id), manual INTEGER NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+)"""
 
 _IMPORT_SCHEMA = """CREATE TABLE resume_imports (
     id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE,
@@ -55,7 +66,7 @@ _SCHEMA = (
         name TEXT NOT NULL, company TEXT, source TEXT NOT NULL,
         text TEXT NOT NULL, requirements TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('draft', 'confirmed')),
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, confirmed_at TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, confirmed_at TEXT, import_id TEXT,
         UNIQUE (job_id, version)
     )""",
     """CREATE TABLE career_threads (
@@ -89,6 +100,7 @@ _SCHEMA = (
     "CREATE INDEX analysis_thread_idx ON analysis_runs(career_thread_id, created_at)",
     "CREATE INDEX plans_analysis_idx ON preparation_plans(analysis_id, created_at)",
     _IMPORT_SCHEMA,
+    _JOB_IMAGE_SCHEMA,
 )
 
 
@@ -96,6 +108,8 @@ def _parse(model: type[_Record], row: sqlite3.Row, *json_fields: str) -> _Record
     values: dict[str, object] = {key: row[key] for key in row.keys()}
     for key in json_fields:
         value = values[key]
+        if value is None:
+            continue
         if not isinstance(value, str):
             raise ValueError(f"invalid career JSON column: {key}")
         values[key] = json.loads(value)
@@ -163,19 +177,22 @@ class CareerStore:
             with db:
                 db.execute("BEGIN IMMEDIATE")
                 version = db.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1, 2, 3, SCHEMA_VERSION):
+                if version not in (0, 1, 2, 3, 4, SCHEMA_VERSION):
                     raise ValueError(f"unsupported career schema_version: {version}")
                 if version == 0:
                     for statement in _SCHEMA:
                         db.execute(statement)
                     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-                elif version in (1, 2, 3):
+                elif version in (1, 2, 3, 4):
                     if version == 1:
                         db.execute("ALTER TABLE career_threads ADD COLUMN deleted_at TEXT")
                     if version in (1, 2):
                         db.execute("ALTER TABLE preparation_tasks ADD COLUMN basis TEXT NOT NULL DEFAULT ''")
-                    db.execute("ALTER TABLE resume_versions ADD COLUMN import_id TEXT")
-                    db.execute(_IMPORT_SCHEMA)
+                    if version in (1, 2, 3):
+                        db.execute("ALTER TABLE resume_versions ADD COLUMN import_id TEXT")
+                        db.execute(_IMPORT_SCHEMA)
+                    db.execute("ALTER TABLE job_versions ADD COLUMN import_id TEXT")
+                    db.execute(_JOB_IMAGE_SCHEMA)
                     db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @contextmanager
@@ -265,6 +282,34 @@ class CareerStore:
     @staticmethod
     def add_job(db: sqlite3.Connection, record: JobVersion) -> None:
         _insert(db, "job_versions", record)
+
+    @staticmethod
+    def job_image(db: sqlite3.Connection, import_id: str) -> JobImageImport:
+        row = db.execute("SELECT * FROM job_image_imports WHERE id=?", (import_id,)).fetchone()
+        return _parse(JobImageImport, _required(row, "job image import"), "reading")
+
+    @staticmethod
+    def job_image_for_request(db: sqlite3.Connection, request_id: str) -> JobImageImport | None:
+        row = db.execute("SELECT * FROM job_image_imports WHERE request_id=?", (request_id,)).fetchone()
+        return _parse(JobImageImport, row, "reading") if row is not None else None
+
+    @staticmethod
+    def job_images(db: sqlite3.Connection) -> list[JobImageImport]:
+        return [_parse(JobImageImport, row, "reading") for row in db.execute("SELECT * FROM job_image_imports ORDER BY created_at,id")]
+
+    @staticmethod
+    def add_job_image(db: sqlite3.Connection, record: JobImageImport) -> None:
+        _insert(db, "job_image_imports", record)
+
+    @staticmethod
+    def update_job_image(db: sqlite3.Connection, record: JobImageImport) -> None:
+        db.execute(
+            """UPDATE job_image_imports SET status=?,width=?,height=?,reading=?,error_code=?,model=?,provider=?,
+                job_version_id=?,manual=?,updated_at=? WHERE id=?""",
+            (record.status, record.width, record.height,
+             json.dumps(record.reading.model_dump(mode="json"), ensure_ascii=False) if record.reading else None,
+             record.error_code, record.model, record.provider, record.job_version_id, record.manual, record.updated_at.isoformat(), record.id),
+        )
 
     @staticmethod
     def update_job(db: sqlite3.Connection, record: JobVersion) -> None:

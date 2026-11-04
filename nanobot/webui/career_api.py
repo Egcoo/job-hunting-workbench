@@ -1,4 +1,4 @@
-"""Authenticated transport adapter for career records, without model execution."""
+"""Authenticated career transport and gateway-owned screenshot recognition coordination."""
 
 from __future__ import annotations
 
@@ -15,10 +15,12 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
 from nanobot.agent.tools.context import RequestContext
 from nanobot.career.context import redact
 from nanobot.career.imports import ResumeImports, validate_resume_upload
+from nanobot.career.job_images import JobImages, validate_job_image_upload
 from nanobot.career.models import (
     CareerConflictError,
     CareerNotFoundError,
     CareerThread,
+    JobImageImport,
     PersonalConditions,
     PreparationPlan,
     ResumeImport,
@@ -35,6 +37,8 @@ from nanobot.security.workspace_access import (
     build_workspace_scope,
 )
 from nanobot.session.manager import SessionManager
+from nanobot.utils.cancellation import shield_and_drain
+from nanobot.webui.job_image_recognition import JobImageRecognizer, JobVisionError
 from nanobot.webui.metadata import CAREER_TURN_METADATA, WEBUI_TURN_METADATA_KEY
 from nanobot.webui.workspaces import WebUIWorkspaceController, read_webui_workspace_state
 
@@ -43,6 +47,7 @@ CAREER_MUTATIONS = frozenset({
     "career.resume.rename", "career.resume.confirm",
     "career.resume.import", "career.resume.import.retry",
     "career.job.create", "career.job.edit", "career.job.revise", "career.job.confirm",
+    "career.job.image.import", "career.job.image.retry", "career.job.image.save",
     "career.thread.create",
     "career.plan.confirm", "career.plan.cancel", "career.task.update",
 })
@@ -80,6 +85,22 @@ class _ResumeImport(_Request):
 
 class _JobWrite(_Request):
     id: ShortText | None = None
+    name: ShortText
+    company: ShortText | None = None
+    text: Annotated[str, Field(min_length=1, max_length=200_000)]
+    requirements: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class _JobImageUpload(_Request):
+    request_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")]
+    attachment_ref: ShortText
+    filename: Annotated[str, Field(min_length=1, max_length=255)]
+    size: Annotated[int, Field(strict=True, ge=1, le=6 * 1024 * 1024)]
+
+
+class _JobImageSave(_Request):
+    id: ShortText
+    manual: Annotated[bool, Field(strict=True)] = False
     name: ShortText
     company: ShortText | None = None
     text: Annotated[str, Field(min_length=1, max_length=200_000)]
@@ -138,6 +159,8 @@ class CareerAPI:
         self.workspaces = workspaces
         self.data_dir = data_dir
         self._lifecycle_lock = asyncio.Lock()
+        self._image_lock = asyncio.Lock()
+        self.job_image_recognizer: JobImageRecognizer | None = None
 
     def _scopes(self) -> dict[str, WorkspaceScope]:
         default = self.workspaces.default_scope()
@@ -238,6 +261,8 @@ class CareerAPI:
             "resumes": [item.model_dump(mode="json") for item in service.list_resumes()],
             "imports": [self._import_payload(item) for item in ResumeImports(service.store).list()],
             "jobs": [item.model_dump(mode="json") for item in service.list_jobs()],
+            "job_images": [self._job_image_payload(item) for item in JobImages(service.store).list()],
+            "job_image_recognition_available": self.job_image_recognizer is not None,
             "threads": [item.model_dump(mode="json") for item in threads],
             "deleted_thread_ids": [item.id for item in service.list_threads(include_deleted=True) if item.deleted_at is not None],
             "plans": [self._plan_payload(service, item) for item in plans],
@@ -299,6 +324,91 @@ class CareerAPI:
             finally:
                 await asyncio.to_thread(source.unlink, missing_ok=True)
             return await asyncio.to_thread(self._import_result, service, record)
+
+    @staticmethod
+    def _job_image_payload(record: JobImageImport, *, detail: bool = False) -> dict[str, object]:
+        return record.model_dump(mode="json", exclude={"request_id", "sha256"} if detail else {"request_id", "sha256", "reading"})
+
+    def job_image(self, reference: str, import_id: str) -> dict[str, object]:
+        service, _ = self._resolve(reference)
+        return self._job_image_payload(JobImages(service.store).get(import_id), detail=True)
+
+    def job_image_file(self, reference: str, import_id: str) -> tuple[JobImageImport, bytes]:
+        service, _ = self._resolve(reference)
+        return JobImages(service.store).original(import_id)
+
+    def _job_image_result(self, service: CareerService, record: JobImageImport) -> dict[str, object]:
+        job = service.get_job(record.job_version_id) if record.job_version_id is not None else None
+        return {"import": self._job_image_payload(record, detail=True), "job": job.model_dump(mode="json") if job else None}
+
+    async def _recognize_job_image(self, service: CareerService, record: JobImageImport) -> JobImageImport:
+        images = JobImages(service.store)
+        if record.status == "ready" or record.job_version_id is not None:
+            return record
+        record = await asyncio.to_thread(images.validate, record.id)
+        if record.error_code in {"invalid_image", "image_limit", "file_unavailable"}:
+            return record
+        reader = self.job_image_recognizer
+        if reader is None:
+            return await asyncio.to_thread(images.fail, record.id, "vision_unavailable")
+        try:
+            runtime = reader.resolve_runtime()
+            await asyncio.to_thread(images.begin, record.id, model=runtime.model, provider=runtime.provider.provider_name)
+            _, content = await asyncio.to_thread(images.original, record.id)
+            reading = await asyncio.wait_for(reader.recognize(runtime, content), timeout=75)
+        except asyncio.CancelledError:
+            await shield_and_drain(asyncio.to_thread(images.fail, record.id, "interrupted"))
+            raise
+        except TimeoutError:
+            return await asyncio.to_thread(images.fail, record.id, "timeout")
+        except JobVisionError as error:
+            return await asyncio.to_thread(images.fail, record.id, error.code)
+        except OSError:
+            return await asyncio.to_thread(images.fail, record.id, "file_unavailable")
+        except Exception:
+            return await asyncio.to_thread(images.fail, record.id, "recognition_failed")
+        return await shield_and_drain(asyncio.to_thread(images.finish, record.id, reading))
+
+    async def _import_job_image(self, action: str, payload: dict[str, object], uploads: AttachmentStore | None, owner: str) -> dict[str, object]:
+        # Image calls can take time. Serialize them separately so ordinary career
+        # reads, conversations, deletion and task updates do not wait on a model.
+        async with self._image_lock:
+            if action == "career.job.image.save":
+                review = _JobImageSave.model_validate(payload)
+                service, _ = await asyncio.to_thread(self._resolve, review.workspace_ref)
+                images = JobImages(service.store)
+                job = await shield_and_drain(asyncio.to_thread(images.save_review, review.id, name=review.name, company=review.company,
+                                                               text=review.text, requirements=review.requirements, manual=review.manual))
+                return job.model_dump(mode="json")
+            if action == "career.job.image.retry":
+                retry = _VersionRequest.model_validate(payload)
+                service, _ = await asyncio.to_thread(self._resolve, retry.workspace_ref)
+                record = await asyncio.to_thread(JobImages(service.store).get, retry.id)
+            else:
+                request = _JobImageUpload.model_validate(payload)
+                service, _ = await asyncio.to_thread(self._resolve, request.workspace_ref)
+                images = JobImages(service.store)
+                existing = await asyncio.to_thread(images.for_request, request.request_id)
+                if existing is not None:
+                    if (existing.filename, existing.size) != (request.filename, request.size):
+                        raise CareerConflictError("career_image_request_reused")
+                    if uploads is not None:
+                        uploads.discard([request.attachment_ref], owner=owner)
+                    return await asyncio.to_thread(self._job_image_result, service, existing)
+                if uploads is None or not owner:
+                    raise ValueError("career_image_requires_upload_connection")
+                entry = uploads.inspect([request.attachment_ref], owner=owner)[0]
+                validate_job_image_upload(request.filename, entry.mime, entry.size)
+                if entry.size != request.size or entry.path.resolve().parent != uploads.media_dir.resolve() or entry.path.is_symlink():
+                    raise ValueError("career_invalid_upload")
+                source = Path(uploads.commit([request.attachment_ref], owner=owner)[0])
+                try:
+                    record = await shield_and_drain(asyncio.to_thread(images.accept, source, request_id=request.request_id,
+                                                                      filename=request.filename, mime=entry.mime, size=entry.size))
+                finally:
+                    await asyncio.to_thread(source.unlink, missing_ok=True)
+            record = await self._recognize_job_image(service, record)
+            return await asyncio.to_thread(self._job_image_result, service, record)
 
     @staticmethod
     def _plan_payload(service: CareerService, plan: PreparationPlan) -> dict[str, object]:
@@ -441,6 +551,8 @@ class CareerAPI:
     ) -> dict[str, object]:
         if action not in CAREER_MUTATIONS:
             raise CareerNotFoundError("career_action_not_found")
+        if action in {"career.job.image.import", "career.job.image.retry", "career.job.image.save"}:
+            return await self._import_job_image(action, payload, uploads, upload_owner)
         if action in {"career.resume.import", "career.resume.import.retry"}:
             return await self._import_resume(action, payload, uploads, upload_owner)
         if action in {"career.plan.confirm", "career.plan.cancel", "career.task.update"}:

@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import io
 import json
+import re
 import sys
 from collections.abc import Awaitable
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+from unittest.mock import patch
 
 import httpx
+from PIL import Image
 
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.context import current_request_context
@@ -35,6 +40,7 @@ from nanobot.webui.career_policy import career_discussion_policy
 from nanobot.webui.career_tools import ProposePreparationPlanTool
 from nanobot.webui.gateway_services import build_gateway_services
 from nanobot.webui.history import fact_from_record
+from nanobot.webui.job_image_recognition import JobImageRecognizer, image_challenge
 from nanobot.webui.workspaces import write_webui_workspace_state
 
 
@@ -51,11 +57,41 @@ class EngineeringProvider(LLMProvider):
         model: str | None = None, max_tokens: int = 4096, temperature: float = 0.7,
         reasoning_effort: str | None = None, tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
+        raw = messages[-1]["content"]
+        if isinstance(raw, list) and "vision_code" in str(messages[0].get("content", "")):
+            blocks: list[dict[str, Any]] = []
+            for item in cast(list[object], raw):
+                if isinstance(item, dict):
+                    block = cast(dict[str, Any], item)
+                    if block.get("type") == "image_url":
+                        blocks.append(block)
+            content = base64.b64decode(blocks[0]["image_url"]["url"].split(",", 1)[1])
+            with Image.open(io.BytesIO(content)) as image:
+                pixel = image.convert("RGB").crop((0, 0, 1, 1)).tobytes()
+            second = pixel[2] > pixel[0]
+            title = "ENGINEERING_JOB_B..." if second else "ENGINEERING_JOB_A"
+            company = "工程公司 B" if second else "工程公司 A"
+            days, months = (5, 3) if second else (4, 6)
+            return LLMResponse(content=json.dumps({
+                "vision_code": "246810", "readable": True,
+                "text": f"{title}\n{company}\n上海\n{days}天/周 {months}个月\n职责：原型设计\n要求：用户调研",
+                "fields": {
+                    "name": {"value": title, "evidence": title}, "company": {"value": company, "evidence": company},
+                    "locations": [{"value": "上海", "evidence": "上海"}],
+                    "responsibilities": [{"value": "原型设计", "evidence": "职责：原型设计"}],
+                    "qualifications": [{"value": "用户调研", "evidence": "要求：用户调研"}],
+                    "days_per_week": {"value": days, "evidence": f"{days}天/周"},
+                    "available_months": {"value": months, "evidence": f"{months}个月"},
+                }, "warnings": ["工程样例：标题截断，请核对。"] if second else [],
+            }, ensure_ascii=False))
         current = str(messages[-1]["content"])
         if messages[-1]["role"] == "tool":
             return LLMResponse(content="工程测试：准备草稿已生成，请在界面核对并确认。" if '"draft_id"' in current else "工程测试：工具未生成草稿。", finish_reason="stop")
         context = current_request_context()
         intent = context.original_user_text if context and context.original_user_text else current
+        if "确认后的岗位结构化要求" in intent:
+            required = re.search(r'"field"\s*:\s*"days_per_week"[^}]*"required"\s*:\s*(\d+)', current)
+            return LLMResponse(content=f"确认后的岗位要求为每周 {required.group(1)} 天。" if required else "请先核对结构化要求。", finish_reason="stop")
         if "准备计划" in intent:
             project = "CV_C9" if "CV_C9" in current else "CV_A7"
             tasks = [
@@ -133,6 +169,10 @@ async def run(root: Path, port: int, *, configured_model: bool = False) -> None:
         ], expected_generation=None)
     channel = WebSocketChannel(config, bus, gateway=gateway)
     agent.tools.register(ProposePreparationPlanTool(gateway.http.career, bus))
+    gateway.http.career.job_image_recognizer = JobImageRecognizer(agent.llm_runtime)
+    vision_patch = patch("nanobot.webui.job_image_recognition._challenge", lambda: image_challenge("246810")) if not configured_model else None
+    if vision_patch is not None:
+        vision_patch.start()
     def schedule(awaitable: Awaitable[None]) -> None:
         async def work() -> None:
             await awaitable
@@ -168,6 +208,8 @@ async def run(root: Path, port: int, *, configured_model: bool = False) -> None:
         print("CAREER_BROWSER_READY", flush=True)
         await asyncio.to_thread(sys.stdin.readline)
     finally:
+        if vision_patch is not None:
+            vision_patch.stop()
         agent.stop()
         execution.cancel()
         with suppress(asyncio.CancelledError):

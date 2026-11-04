@@ -599,7 +599,7 @@ class GatewayHTTPHandler:
         request: WsRequest,
         got: str,
     ) -> Any | None:
-        if got in {"/api/career/workspaces", "/api/career", "/api/career/conversation", "/api/career/resume-import", "/api/career/resume-file"} or got.startswith("/api/career/mutate/"):
+        if got in {"/api/career/workspaces", "/api/career", "/api/career/conversation", "/api/career/resume-import", "/api/career/resume-file", "/api/career/job-image", "/api/career/job-image-file"} or got.startswith("/api/career/mutate/"):
             return await self._dispatch_career(connection, request, got)
         if got == "/api/remote-instances" or got.startswith("/api/remote-instances/"):
             return await self._dispatch_remote_instances(connection, request, got)
@@ -671,6 +671,17 @@ class GatewayHTTPHandler:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         try:
+            if path in {"/api/career/job-image", "/api/career/job-image-file"}:
+                query = _parse_query(request.path)
+                reference = _query_first(query, "workspace_ref") or ""
+                import_id = _query_first(query, "id") or ""
+                if path.endswith("job-image"):
+                    return _http_json_response(await asyncio.to_thread(self.career.job_image, reference, import_id), extra_headers=_NO_STORE_HEADERS)
+                record, content = await asyncio.to_thread(self.career.job_image_file, reference, import_id)
+                return _http_response(content, content_type="application/octet-stream", extra_headers=[
+                    *_NO_STORE_HEADERS, ("X-Content-Type-Options", "nosniff"),
+                    ("Content-Disposition", f"attachment; filename*=UTF-8''{quote(record.filename, safe='')}"),
+                ])
             if path in {"/api/career/resume-import", "/api/career/resume-file"}:
                 query = _parse_query(request.path)
                 reference = _query_first(query, "workspace_ref") or ""
@@ -698,7 +709,7 @@ class GatewayHTTPHandler:
                     extra_headers=_NO_STORE_HEADERS,
                 )
             action = path.removeprefix("/api/career/mutate/")
-            uploads = self.uploads if action == "career.resume.import" else None
+            uploads = self.uploads if action in {"career.resume.import", "career.job.image.import"} else None
             return _http_json_response(await self.career.mutate(
                 action, _mutation_payload(request) or {},
                 uploads=uploads.store if uploads is not None else None,

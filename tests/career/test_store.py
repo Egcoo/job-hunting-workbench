@@ -12,6 +12,11 @@ from nanobot.career.service import CareerService
 from nanobot.career.store import SCHEMA_VERSION, CareerStore
 
 
+def _remove_job_image_schema(db: sqlite3.Connection) -> None:
+    db.execute("DROP TABLE job_image_imports")
+    db.execute("ALTER TABLE job_versions DROP COLUMN import_id")
+
+
 def test_default_store_uses_active_instance_data_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -72,6 +77,7 @@ def test_v1_database_upgrade_preserves_materials_bindings_and_analysis(tmp_path:
         db.execute("DROP TABLE resume_imports")
         db.execute("ALTER TABLE resume_versions DROP COLUMN import_id")
         db.execute("PRAGMA user_version = 1")
+        _remove_job_image_schema(db)
     restored = CareerService(CareerStore(tmp_path / "workspace", data_dir=tmp_path / "data"))
     assert restored.get_thread(thread.id) == thread
     assert restored.get_resume(resume.id).text == resume.text
@@ -105,6 +111,7 @@ def test_v2_upgrade_retains_confirmed_tasks_and_completed_results(tmp_path: Path
             json.dumps([{"title": "旧任务", "action": "整理一页", "completion_criteria": "一页完成"}], ensure_ascii=False), plan.id,
         ))
         db.execute("PRAGMA user_version = 2")
+        _remove_job_image_schema(db)
     restored = CareerService(CareerStore(tmp_path / "workspace", data_dir=tmp_path / "data"))
     assert restored.get_plan(plan.id).status == "confirmed"
     assert restored.list_tasks(plan.id) == [completed]
@@ -125,10 +132,13 @@ def test_v3_upgrade_retains_old_snapshots_and_removed_preparations(tmp_path: Pat
     with closing(sqlite3.connect(store.path)) as db, db:
         snapshot = json.loads(db.execute("SELECT snapshot FROM analysis_runs WHERE id=?", (analysis.id,)).fetchone()[0])
         snapshot["resume"].pop("import_id")
+        snapshot["job"].pop("import_id")
         db.execute("UPDATE analysis_runs SET snapshot=? WHERE id=?", (json.dumps(snapshot), analysis.id))
         db.execute("DROP TABLE resume_imports")
         db.execute("ALTER TABLE resume_versions DROP COLUMN import_id")
         db.execute("PRAGMA user_version=3")
+        _remove_job_image_schema(db)
+
     restored = CareerService(CareerStore(tmp_path / "workspace", data_dir=tmp_path / "data"))
     assert restored.get_resume(resume.id).source == "text"
     assert restored.get_resume(resume.id).import_id is None
@@ -137,3 +147,36 @@ def test_v3_upgrade_retains_old_snapshots_and_removed_preparations(tmp_path: Pat
     with restored.store.transaction() as db:
         assert restored.store.resume_imports(db) == []
         assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+
+
+def test_v4_upgrade_preserves_resume_files_and_confirmed_job_snapshots(tmp_path: Path) -> None:
+    from docx import Document
+
+    from nanobot.career.imports import ResumeImports
+
+    workspace, data = tmp_path / "workspace", tmp_path / "data"
+    store = CareerStore(workspace, data_dir=data)
+    document = Document()
+    document.add_paragraph("工程模拟简历 CV_V4")
+    path = tmp_path / "old-resume.docx"
+    document.save(path)
+    raw = path.read_bytes()
+    imported = ResumeImports(store).accept(path, request_id="v4-resume", filename=path.name,
+                                          mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", size=len(raw), name="v4 简历")
+    service = CareerService(store)
+    resume = service.confirm_resume(imported.resume_version_id)
+    job = service.confirm_job(service.create_job(name="v4 岗位", text="保留岗位原文").id)
+    thread = service.create_thread(session_key="career:v4", resume_version_id=resume.id, job_version_id=job.id)
+    analysis = service.create_analysis(thread.id, turn_id="v4-turn")
+    with closing(sqlite3.connect(store.path)) as db, db:
+        snapshot = json.loads(db.execute("SELECT snapshot FROM analysis_runs WHERE id=?", (analysis.id,)).fetchone()[0])
+        snapshot["job"].pop("import_id")
+        db.execute("UPDATE analysis_runs SET snapshot=? WHERE id=?", (json.dumps(snapshot), analysis.id))
+        _remove_job_image_schema(db)
+        db.execute("PRAGMA user_version=4")
+    restored = CareerService(CareerStore(workspace, data_dir=data))
+    assert restored.get_job(job.id) == job and restored.get_resume(resume.id) == resume
+    assert restored.get_analysis(analysis.id).snapshot.job == job
+    assert ResumeImports(restored.store).original(imported.id)[1] == raw
+    with restored.store.transaction() as db:
+        assert restored.store.job_images(db) == []

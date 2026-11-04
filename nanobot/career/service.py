@@ -20,6 +20,7 @@ from nanobot.career.models import (
     AnalysisStatus,
     CareerConflictError,
     CareerThread,
+    ImageJobRequirements,
     JobVersion,
     PersonalConditions,
     PreparationPlan,
@@ -175,7 +176,7 @@ class CareerService:
                 raise CareerConflictError("confirmed job content is immutable; save a new version")
             record = _replace(
                 current, name=name, company=company, text=text,
-                requirements=requirements if requirements is not None else {}, updated_at=_now(),
+                requirements=ImageJobRequirements.model_validate(requirements or {}).values() if current.source == "image" else requirements if requirements is not None else {}, updated_at=_now(),
             )
             self.store.update_job(db, record)
             return record
@@ -191,9 +192,10 @@ class CareerService:
                 id=_id("job_version"), job_id=previous.job_id,
                 version=self.store.next_job_version(db, previous.job_id),
                 parent_version_id=previous.id,
+                source=previous.source, import_id=previous.import_id,
                 name=name if name is not None else previous.name,
                 company=previous.company if isinstance(company, _Unchanged) else company,
-                text=text, requirements=requirements if requirements is not None else {},
+                text=text, requirements=ImageJobRequirements.model_validate(requirements or {}).values() if previous.source == "image" else requirements if requirements is not None else {},
                 created_at=now, updated_at=now,
             )
             self.store.add_job(db, record)

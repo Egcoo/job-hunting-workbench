@@ -32,6 +32,7 @@ CAREER_CHAT_CAPABILITY = "webui.career.chat.v1"
 CAREER_DELETE_CAPABILITY = "webui.career.deletion.v1"
 CAREER_PLAN_CAPABILITY = "webui.career.plans.v1"
 CAREER_IMPORT_CAPABILITY = "webui.career.resume-import.v1"
+CAREER_JOB_IMAGE_CAPABILITY = "webui.career.job-image.v1"
 
 
 class Compatibility(TypedDict):
@@ -53,6 +54,7 @@ def webui_contract() -> dict[str, object]:
             UPDATE_RETRY_CAPABILITY, UPDATE_SETTLE_HANDOFF_CAPABILITY, UPDATE_FLOW_CAPABILITY, UPDATE_CHANNEL_CAPABILITY,
             PROMPT_NAVIGATION_CAPABILITY, CAREER_CAPABILITY, CAREER_CHAT_CAPABILITY, CAREER_DELETE_CAPABILITY, CAREER_PLAN_CAPABILITY,
             CAREER_IMPORT_CAPABILITY,
+            CAREER_JOB_IMAGE_CAPABILITY,
         ],
     }
 
