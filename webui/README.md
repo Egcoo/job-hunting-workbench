@@ -31,9 +31,9 @@ nanobot/channels/*/tests/webui/  channel interface tests
 
 ## Develop the WebUI (Vite HMR)
 
-The career workbench is available from the existing sidebar. It currently manages text resumes, job versions, preparation bindings, and saved-task display. Model-grounded preparation conversations and file/image import belong to later stages. See the [career module guide](../nanobot/career/README.md) for its API, storage and verification boundaries.
+The career workbench is available from the existing sidebar. It supports resume and job versions, PDF/DOCX resume import, job screenshot recognition and review, material-bound conversations, user-confirmed preparation plans, and task tracking. See the [career module guide](../nanobot/career/README.md) for its API, storage and verification boundaries.
 
-`npm run test:career` builds this app and runs a separate real-browser integration test against a disposable Python gateway, without an agent or model. It requires the repository `.venv` and a Playwright browser; `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can point to an already installed Chrome. `NANOBOT_TEST_PYTHON` can override the test interpreter. This integration test is excluded from the ordinary browser component fixtures.
+`npm run test:career` builds this app and runs real-browser integration tests against a disposable Python gateway, using the real agent runtime with a deterministic engineering provider by default. Real-model checks are separate and opt in through `NANOBOT_CAREER_LIVE_MODEL=1`; see the career module guide for the recorded scope. The tests require the repository `.venv` and a Playwright browser; `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can point to an already installed Chrome. `NANOBOT_TEST_PYTHON` can override the test interpreter. These integration tests are excluded from the ordinary browser component fixtures.
 
 ### 1. Install nanobot from source
 
